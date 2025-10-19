@@ -31,9 +31,9 @@ async function getGitHubTemplate() {
     }
 }
 
-// A. Gemini API call (Sinhala Content Generation)
+// A. Gemini API call (Sinhala Content Generation) - generationConfig නිවැරදි කර ඇත
 async function generateSinhalaContent(githubTemplate) {
-    // API Key එක URL Parameter එකක් ලෙස යවනු ලැබේ (දෝෂ අඩු කිරීමට)
+    // API Key එක URL Parameter එකක් ලෙස යවනු ලැබේ
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const prompt = `
@@ -55,7 +55,11 @@ async function generateSinhalaContent(githubTemplate) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ role: "user", parts: [{ text: prompt }] }],
-                config: { temperature: 0.8 } 
+                
+                // 🛑 දෝෂය නිවැරදි කරන ලදි: 'config' වෙනුවට 'generationConfig' භාවිත කරයි
+                generationConfig: { 
+                    temperature: 0.8 
+                } 
             }),
         });
 
@@ -134,7 +138,8 @@ async function runDailyPostWorkflow(env) {
     // 3. Generate Sinhala Content
     const postText = await generateSinhalaContent(githubTemplate);
     if (!postText) {
-        return { success: false, message: 'Failed to generate content via Gemini.' };
+        // Log එකේ දෝෂය දැන් නිශ්චිතව පෙන්විය යුතුය
+        return { success: false, message: 'Failed to generate content via Gemini.' }; 
     }
     
     // 4. Send Post to Telegram
@@ -164,7 +169,8 @@ export default {
         const url = new URL(request.url);
         if (url.pathname === '/trigger-manual') {
             const result = await runDailyPostWorkflow(env);
-            return new Response(JSON.stringify(result, null, 2), { headers: { 'Content-Type': 'application/json' } });
+            // JSON.stringify(null, 2) මගින් ප්‍රතිචාරය වඩාත් පිරිසිදුව පෙන්වයි
+            return new Response(JSON.stringify(result, null, 2), { headers: { 'Content-Type': 'application/json' } }); 
         }
         return new Response('Worker running. Use the scheduled trigger or /trigger-manual to run the workflow.', { status: 200 });
     }
