@@ -2,7 +2,7 @@
 
 const CONFIG = {
     // ⚠️ මේවා ඔබේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
-    TELEGRAM_BOT_TOKEN: "5389567211:AAG0ksuNyQ1AN0JpcZjBhQQya9-jftany2A",
+    TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q",
     TELEGRAM_CHAT_ID: "1901997764", // ඔබේ Channel/Group ID
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA",
     
