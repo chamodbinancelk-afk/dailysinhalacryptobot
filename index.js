@@ -4,7 +4,7 @@ const CONFIG = {
     // ⚠️ මේවා ඔබේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q",
     TELEGRAM_CHAT_ID: "1901997764", // 👈 ඔබගේ පුද්ගලික User ID එක
-    GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA",
+    GEMINI_API_KEY: "AIzaSyDDmFq7B3gTazrcrI_J4J7VhB9YdFyTCaU",
     
     // 👈 නිවැරදි Raw Content URL එක
     GITHUB_CONTENT_URL: "https://raw.githubusercontent.com/chamodbinancelk-afk/dailysinhalacryptobot/main/crypto_sinhala_template.md"
