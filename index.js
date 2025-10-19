@@ -7,7 +7,7 @@ const CONFIG = {
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA",
     
     // GitHub Raw URL එකක් මෙහි ඇතුළත් කරන්න (https://raw.githubusercontent.com/... format එකෙන්)
-    GITHUB_CONTENT_URL: "https://github.com/chamodbinancelk-afk/cfnewseconomic2000/blob/main/crypto_sinhala_template.md"
+    GITHUB_CONTENT_URL: "https://github.com/chamodbinancelk-afk/dailysinhalacryptobot/blob/main/crypto_sinhala_template.md"
 };
 
 // --- 1. CORE FUNCTIONS ---
