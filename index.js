@@ -16,22 +16,23 @@ const CONFIG = {
 
 // --- 1. CORE FUNCTIONS ---
 
-// A. Gemini API call (Sinhala Content Generation) - Trading Education සඳහා යාවත්කාලීන කර ඇත.
+// A. Gemini API call (Sinhala Content Generation) - Sinhala-English Mix, Step-by-Step Trading
 async function generateSinhalaContent() {
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
-    // 🛑 අලුත් System Prompt එක: Trading ගැන මුල සිට කියා දෙන අලුත් මාතෘකාවක් තෝරා ගන්න
+    // 🛑 System Prompt: Trading මූලික සංකල්ප Step-by-Step Singlish වලින් කියා දීමට උපදෙස් දෙයි.
     const systemPrompt = `
-        You are an expert financial and trading educator. Your primary goal is to provide daily, foundational trading education for beginners.
+        You are an expert financial and trading educator. Your primary goal is to provide daily, **step-by-step** foundational trading education for absolute beginners.
+        
         Your task is to:
-        1. Use the 'google_search' tool to find a different, fundamental trading concept each day (e.g., Candlesticks, Support and Resistance, RSI, Stop-Loss, or Risk Management). DO NOT repeat the same topic frequently.
-        2. Generate a high-quality, 5-paragraph educational post in **SINHALA LANGUAGE** based on that chosen fundamental trading concept. The post must explain the concept simply, provide practical usage, and be encouraging for beginners.
+        1. **Systematic Topic Selection:** Use the 'google_search' tool to select a fundamental trading topic from the beginner's curriculum. Topics MUST include core elements like: **Candlesticks, Support and Resistance, Money Management, Chart Patterns, Fibonacci Tools, and basic Indicators (RSI, Moving Averages)**. Ensure the selected topic is *different* from recent posts to maintain a progressive learning path.
+        2. **Content Generation:** Generate a high-quality, 5-paragraph educational post in **SINHALA-ENGLISH MIXED LANGUAGE (SINGLISH)** based on that chosen concept. The post must explain the concept simply, provide a practical example, and encourage the beginner. Use Sinhala as the base language but incorporate common English trading terms (e.g., "market eke", "buy karanna", "take profit").
         3. The post must be well-formatted using Telegram's **Markdown** (titles, bold text, lists, and emojis).
         
         Your final output must contain ONLY the content of the post. DO NOT include any English wrappers like "POST_TEXT:", "---START_OUTPUT---", etc.
     `;
     
-    const userQuery = "Generate today's new and engaging Sinhala educational trading post for beginners.";
+    const userQuery = "Generate today's new, progressive, and engaging Singlish educational trading post for beginners.";
 
     try {
         const response = await fetch(GEMINI_API_ENDPOINT, {
@@ -43,7 +44,7 @@ async function generateSinhalaContent() {
                 // Google Search Tool එක
                 tools: [{ "google_search": {} }], 
                 
-                // System Instruction එක මගින් AI එකට මාතෘකාව තීරණය කරන්න උපදෙස් දෙයි
+                // System Instruction එක
                 systemInstruction: {
                     parts: [{ text: systemPrompt }]
                 },
@@ -111,7 +112,7 @@ async function runDailyPostWorkflow(env) {
     }
 
     const todayKey = new Date().toISOString().slice(0, 10); 
-    const KV_KEY = `trading_post_posted:${todayKey}`; // 🛑 Key එක 'trading' ලෙස වෙනස් කර ඇත.
+    const KV_KEY = `trading_post_posted:${todayKey}`; // Key එක 'trading' ලෙස තබා ඇත.
 
     // 1. Duplication Check 
     const status = await env.POST_STATUS_KV.get(KV_KEY);
@@ -143,9 +144,8 @@ async function runDailyPostWorkflow(env) {
 // --- 3. WORKER ENTRY POINT ---
 
 export default {
-    // Cron Trigger
+    // Cron Trigger (ස්වයංක්‍රීය ක්‍රියාත්මක වීම)
     async scheduled(event, env, ctx) {
-        // Cron Schedule අනුව දිනපතා ස්වයංක්‍රීයව ක්‍රියාත්මක වේ
         ctx.waitUntil(runDailyPostWorkflow(env));
     },
 
