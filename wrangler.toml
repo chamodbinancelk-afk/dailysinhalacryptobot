@@ -1,0 +1,11 @@
+name = "dailysinhalacryptobot"
+main = "index.js"
+compatibility_date = "2025-10-17"
+
+# KV Namespace Binding මෙතැනින් ඉවත් කර ඇත. 
+# එය Cloudflare Dashboard එකේ 'Settings -> Variables -> KV Namespace Bindings' යටතේ
+# 'POST_STATUS_KV' ලෙස Variable Name එක දී සම්බන්ධ කළ යුතුය.
+
+# සෑම දිනකම උදෑසන 7:00 ට (UTC) ක්‍රියාත්මක වීමට Schedule එක සකසා ඇත.
+[[triggers]]
+crons = [ "0 7 * * *" ]

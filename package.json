@@ -1,0 +1,19 @@
+{
+  "name": "dailysinhalacryptobot",
+  "version": "1.0.0",
+  "description": "Telegram News Publisher Bot running on Cloudflare Workers",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "start": "wrangler dev"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.0",
+    "cheerio": "^1.0.0-rc.12",
+    "moment-timezone": "^0.5.45"
+  },
+  "devDependencies": {
+    "wrangler": "^3.58.0"
+  }
+}
