@@ -3,11 +3,11 @@
 const CONFIG = {
     // ⚠️ මේවා ඔබේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q",
-    TELEGRAM_CHAT_ID: "1901997764", // ඔබේ Channel/Group ID
+    TELEGRAM_CHAT_ID: "1901997764", // 👈 ඔබගේ පුද්ගලික User ID එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA",
     
-    // GitHub Raw URL එකක් මෙහි ඇතුළත් කරන්න (https://raw.githubusercontent.com/... format එකෙන්)
-    GITHUB_CONTENT_URL: "https://github.com/chamodbinancelk-afk/dailysinhalacryptobot/blob/main/crypto_sinhala_template.md"
+    // 👈 නිවැරදි Raw Content URL එක
+    GITHUB_CONTENT_URL: "https://raw.githubusercontent.com/chamodbinancelk-afk/dailysinhalacryptobot/main/crypto_sinhala_template.md"
 };
 
 // --- 1. CORE FUNCTIONS ---
@@ -16,7 +16,6 @@ const CONFIG = {
 async function generateSinhalaContent(githubTemplate) {
     const GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
     
-    // සිංහලෙන් Post එකක් සෑදීමට උපදෙස් දෙන Prompt එක
     const prompt = `
         You are an expert Crypto Currency Education Specialist. Your task is to generate a high-quality, 5-paragraph educational post in **SINHALA LANGUAGE** suitable for a Telegram audience. 
         The post must be well-formatted using Telegram's Markdown (titles, bold text, lists, and emojis) and should be based on the provided topic/template. 
@@ -56,14 +55,13 @@ async function generateSinhalaContent(githubTemplate) {
 
 // B. Telegram API call (Send Text Message)
 async function sendTelegramMessage(caption) {
-    // Telegram API එකට text එක යැවීමට sendMessage method එක භාවිත කෙරේ.
     const TELEGRAM_API_ENDPOINT = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`;
     try {
         const response = await fetch(TELEGRAM_API_ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                chat_id: CONFIG.TELEGRAM_CHAT_ID,
+                chat_id: CONFIG.TELEGRAM_CHAT_ID, // User ID එකට යැවේ
                 text: caption,
                 parse_mode: 'Markdown'
             }),
@@ -91,13 +89,11 @@ async function getGitHubTemplate() {
 
 // --- 2. MAIN WORKFLOW ---
 
-// Worker එක ක්‍රියාත්මක වන ප්‍රධාන Logic කොටස
 async function runDailyPostWorkflow(env) {
-    const todayKey = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const todayKey = new Date().toISOString().slice(0, 10); 
     const KV_KEY = `posted:${todayKey}`;
 
-    // 1. Duplication Check (Cloudflare KV Store භාවිතයෙන්)
-    // env.POST_STATUS_KV යනු Dashboard එකෙන් Binding කළ Variable එකයි
+    // 1. Duplication Check 
     const status = await env.POST_STATUS_KV.get(KV_KEY);
     if (status === 'POSTED') {
         console.log(`[${todayKey}] Post already sent. Exiting.`);
@@ -110,7 +106,7 @@ async function runDailyPostWorkflow(env) {
         return { success: false, message: 'Failed to fetch GitHub template.' };
     }
 
-    // 3. Generate Sinhala Content using Gemini
+    // 3. Generate Sinhala Content
     const postText = await generateSinhalaContent(githubTemplate);
     if (!postText) {
         return { success: false, message: 'Failed to generate content via Gemini.' };
@@ -120,8 +116,7 @@ async function runDailyPostWorkflow(env) {
     const postSuccess = await sendTelegramMessage(postText);
 
     if (postSuccess) {
-        // 5. Set Flag (Cloudflare KV Store එකේ දින සඳහා කොඩියක් තැබීම)
-        // TTL (Time-To-Live): 86400 seconds = 24 hours
+        // 5. Set Flag 
         await env.POST_STATUS_KV.put(KV_KEY, 'POSTED', { expirationTtl: 86400 }); 
         console.log(`[${todayKey}] Post sent successfully and KV flag set.`);
         return { success: true, message: 'Daily text post completed successfully.' };
@@ -134,12 +129,10 @@ async function runDailyPostWorkflow(env) {
 // --- 3. WORKER ENTRY POINT ---
 
 export default {
-    // Cron Trigger එක ක්‍රියාත්මක වන විට
     async scheduled(event, env, ctx) {
         ctx.waitUntil(runDailyPostWorkflow(env));
     },
 
-    // Manual Trigger (test කිරීම සඳහා)
     async fetch(request, env, ctx) {
         if (request.url.includes('/trigger-manual')) {
             const result = await runDailyPostWorkflow(env);
