@@ -7,5 +7,5 @@ compatibility_date = "2025-10-17"
 # 'POST_STATUS_KV' ලෙස Variable Name එක දී සම්බන්ධ කළ යුතුය.
 
 # සෑම දිනකම උදෑසන 7:00 ට (UTC) ක්‍රියාත්මක වීමට Schedule එක සකසා ඇත.
-[[triggers]]
-crons = [ "0 7 * * *" ]
+[triggers]
+crons = ["*/10 * * * *"]
