@@ -8,4 +8,4 @@ compatibility_date = "2025-10-17"
 
 # සෑම දිනකම උදෑසන 7:00 ට (UTC) ක්‍රියාත්මක වීමට Schedule එක සකසා ඇත.
 [triggers]
-crons = ["*/10 * * * *"]
+crons = ["*/1 * * * *"]
