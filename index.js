@@ -16,18 +16,22 @@ const CONFIG = {
 
 // --- 1. CORE FUNCTIONS ---
 
-// A. Gemini API call (Sinhala Content Generation) - Sinhala-English Mix, Step-by-Step Trading
-async function generateSinhalaContent() {
+// A. Gemini API call (Sinhala Content Generation)
+// 🛑 දැන් කලින් post කළ මාතෘකාව (lastTopic) තර්කයක් ලෙස ලබා ගනී.
+async function generateSinhalaContent(lastTopic) { 
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
-    // 🛑 System Prompt: Trading මූලික සංකල්ප Step-by-Step Singlish වලින් කියා දීමට උපදෙස් දෙයි.
+    // 🛑 System Prompt: කලින් post කළ මාතෘකාව නැවත භාවිතා නොකරන ලෙස උපදෙස් දෙයි.
     const systemPrompt = `
         You are an expert financial and trading educator. Your primary goal is to provide daily, **step-by-step** foundational trading education for absolute beginners.
+        
+        // 🛑 නව උපදෙස්: කලින් Post කළ මාතෘකාව නැවත භාවිතා නොකරන්න.
+        The previously posted topic was: "${lastTopic}". YOU MUST CHOOSE A DIFFERENT TOPIC.
         
         Your task is to:
         1. **Systematic Topic Selection:** Use the 'google_search' tool to select a fundamental trading topic from the beginner's curriculum. Topics MUST include core elements like: **Candlesticks, Support and Resistance, Money Management, Chart Patterns, Fibonacci Tools, and basic Indicators (RSI, Moving Averages)**. Ensure the selected topic is *different* from recent posts to maintain a progressive learning path.
         2. **Content Generation:** Generate a high-quality, 5-paragraph educational post in **SINHALA-ENGLISH MIXED LANGUAGE (SINGLISH)** based on that chosen concept. The post must explain the concept simply, provide a practical example, and encourage the beginner. Use Sinhala as the base language but incorporate common English trading terms (e.g., "market eke", "buy karanna", "take profit").
-        3. The post must be well-formatted using Telegram's **Markdown** (titles, bold text, lists, and emojis).
+        3. The post must be well-formatted using Telegram's **Markdown**. The first line must be a clear title indicating the topic.
         
         Your final output must contain ONLY the content of the post. DO NOT include any English wrappers like "POST_TEXT:", "---START_OUTPUT---", etc.
     `;
@@ -41,10 +45,8 @@ async function generateSinhalaContent() {
             body: JSON.stringify({
                 contents: [{ role: "user", parts: [{ text: userQuery }] }],
                 
-                // Google Search Tool එක
                 tools: [{ "google_search": {} }], 
                 
-                // System Instruction එක
                 systemInstruction: {
                     parts: [{ text: systemPrompt }]
                 },
@@ -76,7 +78,8 @@ async function generateSinhalaContent() {
     }
 }
 
-// B. Telegram API call (Send Text Message)
+// B. Telegram API call (Send Text Message) - No change
+
 async function sendTelegramMessage(caption) {
     const TELEGRAM_API_ENDPOINT = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`;
     try {
@@ -86,7 +89,7 @@ async function sendTelegramMessage(caption) {
             body: JSON.stringify({
                 chat_id: CONFIG.TELEGRAM_CHAT_ID, 
                 text: caption,
-                parse_mode: 'Markdown' // Telegram Markdown භාවිත කරයි
+                parse_mode: 'Markdown' 
             }),
         });
         
@@ -102,38 +105,59 @@ async function sendTelegramMessage(caption) {
     }
 }
 
+// 🛑 නව උපකාරක ශ්‍රිතය: Post එකෙන් මාතෘකාව උපුටා ගැනීමට
+function extractTopicFromPost(postText) {
+    if (!postText) return 'Unknown Topic';
+    
+    // Post එකේ පළමු පේළිය මාතෘකාව ලෙස ගනී
+    const titleLine = postText.split('\n')[0].trim();
+    
+    // මාතෘකාවේ මුල් අකුරු 50 පමණක් ගබඩා කරයි
+    return titleLine.substring(0, 50).replace(/[*_]/g, '').trim(); 
+}
+
 // --- 2. MAIN WORKFLOW ---
 
 async function runDailyPostWorkflow(env) {
-    // KV Binding 'POST_STATUS_KV' අත්‍යවශ්‍යයි
     if (!env.POST_STATUS_KV) {
         console.error("KV Binding 'POST_STATUS_KV' is missing in environment variables.");
         return { success: false, message: 'KV Binding is missing.' };
     }
 
     const todayKey = new Date().toISOString().slice(0, 10); 
-    const KV_KEY = `trading_post_posted:${todayKey}`; // Key එක 'trading' ලෙස තබා ඇත.
+    const DAILY_POST_KV_KEY = `trading_post_posted:${todayKey}`; 
+    const LAST_TOPIC_KV_KEY = `LAST_TRADING_TOPIC`; // 🛑 නව KV Key එක
 
     // 1. Duplication Check 
-    const status = await env.POST_STATUS_KV.get(KV_KEY);
+    const status = await env.POST_STATUS_KV.get(DAILY_POST_KV_KEY);
     if (status === 'POSTED') {
         console.log(`[${todayKey}] Trading Post already sent. Exiting.`);
         return { success: true, message: 'Trading Post already sent.' };
     }
+    
+    // 🛑 2. කලින් Post කළ මාතෘකාව ලබා ගැනීම
+    // පළමු වතාවේදී 'Money Management' ලෙස Default කරන්න (මොකද අවසාන post එක ඒක නිසා)
+    const lastTopic = await env.POST_STATUS_KV.get(LAST_TOPIC_KV_KEY) || "Money Management"; 
 
-    // 2. Generate Sinhala Content 
-    const postText = await generateSinhalaContent(); 
+    // 3. Generate Sinhala Content (කලින් මාතෘකාව යවයි)
+    console.log(`Instructing Gemini: Do not repeat '${lastTopic}'`);
+    const postText = await generateSinhalaContent(lastTopic); 
     if (!postText) {
         return { success: false, message: 'Failed to generate content via Gemini.' }; 
     }
     
-    // 3. Send Post to Telegram
+    // 4. Send Post to Telegram
     const postSuccess = await sendTelegramMessage(postText);
 
     if (postSuccess) {
-        // 4. Set Flag 
-        await env.POST_STATUS_KV.put(KV_KEY, 'POSTED', { expirationTtl: 86400 }); 
-        console.log(`[${todayKey}] Trading Post sent successfully and KV flag set.`);
+        // 5. Set Flag & Store New Topic
+        await env.POST_STATUS_KV.put(DAILY_POST_KV_KEY, 'POSTED', { expirationTtl: 86400 }); 
+        
+        // 🛑 නව මාතෘකාව Save කිරීම
+        const newTopic = extractTopicFromPost(postText);
+        await env.POST_STATUS_KV.put(LAST_TOPIC_KV_KEY, newTopic, { expirationTtl: 2592000 }); // මාසයකට ගබඩා කරයි
+        
+        console.log(`[${todayKey}] Post sent successfully. New topic stored for tomorrow: ${newTopic}`);
         return { success: true, message: 'Daily trading education post completed successfully.' };
     } else {
         console.log(`[${todayKey}] Telegram post failed. KV flag NOT set.`);
