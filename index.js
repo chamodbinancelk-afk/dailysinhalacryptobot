@@ -16,20 +16,21 @@ const CONFIG = {
 
 // --- 1. CORE FUNCTIONS ---
 
-// A. Gemini API call (Sinhala Content Generation)
-// 🛑 දැන් කලින් post කළ මාතෘකාව (lastTopic) තර්කයක් ලෙස ලබා ගනී.
-async function generateSinhalaContent(lastTopic) { 
+// A. Gemini API call (Sinhala Content Generation) - මාතෘකා ලැයිස්තුව මගින් පුනරාවර්තනය වීම වළක්වයි.
+async function generateSinhalaContent(coveredTopics) { 
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
-    // 🛑 System Prompt: කලින් post කළ මාතෘකාව නැවත භාවිතා නොකරන ලෙස උපදෙස් දෙයි.
+    // ආවරණය කළ මාතෘකා string එකක් බවට පත් කරයි
+    const excludedTopicsString = coveredTopics.join(', ');
+    
+    // System Prompt: ආවරණය කළ සියලුම මාතෘකා ලැයිස්තුවක් ලෙස ලබා දී ඒවා මඟහරින්නැයි උපදෙස් දෙයි.
     const systemPrompt = `
         You are an expert financial and trading educator. Your primary goal is to provide daily, **step-by-step** foundational trading education for absolute beginners.
         
-        // 🛑 නව උපදෙස්: කලින් Post කළ මාතෘකාව නැවත භාවිතා නොකරන්න.
-        The previously posted topic was: "${lastTopic}". YOU MUST CHOOSE A DIFFERENT TOPIC.
+        The topics covered so far and MUST BE AVOIDED are: [${excludedTopicsString}].
         
         Your task is to:
-        1. **Systematic Topic Selection:** Use the 'google_search' tool to select a fundamental trading topic from the beginner's curriculum. Topics MUST include core elements like: **Candlesticks, Support and Resistance, Money Management, Chart Patterns, Fibonacci Tools, and basic Indicators (RSI, Moving Averages)**. Ensure the selected topic is *different* from recent posts to maintain a progressive learning path.
+        1. **Systematic Topic Selection:** Use the 'google_search' tool to select a fundamental trading topic from the beginner's curriculum. Topics MUST include core elements like: **Candlesticks, Support and Resistance, Money Management, Chart Patterns, Fibonacci Tools, and basic Indicators (RSI, Moving Averages)**. Ensure the selected topic is *different* from ALL previous topics to maintain a progressive learning path.
         2. **Content Generation:** Generate a high-quality, 5-paragraph educational post in **SINHALA-ENGLISH MIXED LANGUAGE (SINGLISH)** based on that chosen concept. The post must explain the concept simply, provide a practical example, and encourage the beginner. Use Sinhala as the base language but incorporate common English trading terms (e.g., "market eke", "buy karanna", "take profit").
         3. The post must be well-formatted using Telegram's **Markdown**. The first line must be a clear title indicating the topic.
         
@@ -78,8 +79,7 @@ async function generateSinhalaContent(lastTopic) {
     }
 }
 
-// B. Telegram API call (Send Text Message) - No change
-
+// B. Telegram API call (Send Text Message)
 async function sendTelegramMessage(caption) {
     const TELEGRAM_API_ENDPOINT = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/sendMessage`;
     try {
@@ -105,7 +105,7 @@ async function sendTelegramMessage(caption) {
     }
 }
 
-// 🛑 නව උපකාරක ශ්‍රිතය: Post එකෙන් මාතෘකාව උපුටා ගැනීමට
+// උපකාරක ශ්‍රිතය: Post එකෙන් මාතෘකාව උපුටා ගැනීමට
 function extractTopicFromPost(postText) {
     if (!postText) return 'Unknown Topic';
     
@@ -126,7 +126,7 @@ async function runDailyPostWorkflow(env) {
 
     const todayKey = new Date().toISOString().slice(0, 10); 
     const DAILY_POST_KV_KEY = `trading_post_posted:${todayKey}`; 
-    const LAST_TOPIC_KV_KEY = `LAST_TRADING_TOPIC`; // 🛑 නව KV Key එක
+    const TOPICS_COVERED_KV_KEY = `TRADING_TOPICS_COVERED`; 
 
     // 1. Duplication Check 
     const status = await env.POST_STATUS_KV.get(DAILY_POST_KV_KEY);
@@ -135,13 +135,20 @@ async function runDailyPostWorkflow(env) {
         return { success: true, message: 'Trading Post already sent.' };
     }
     
-    // 🛑 2. කලින් Post කළ මාතෘකාව ලබා ගැනීම
-    // පළමු වතාවේදී 'Money Management' ලෙස Default කරන්න (මොකද අවසාන post එක ඒක නිසා)
-    const lastTopic = await env.POST_STATUS_KV.get(LAST_TOPIC_KV_KEY) || "Money Management"; 
+    // 2. ආවරණය කළ මාතෘකා ලැයිස්තුව ලබා ගැනීම
+    // මුල් වරට දෝෂය ඇති වූ "Support and Resistance" සහ "Candlesticks" Default ලෙස තබා ඇත.
+    const coveredTopicsJson = await env.POST_STATUS_KV.get(TOPICS_COVERED_KV_KEY) || '["Support and Resistance", "Candlesticks", "Money Management"]'; 
+    let coveredTopics;
+    try {
+        coveredTopics = JSON.parse(coveredTopicsJson);
+    } catch (e) {
+        console.error("Error parsing covered topics from KV:", e);
+        coveredTopics = ["Support and Resistance", "Candlesticks", "Money Management"];
+    }
 
-    // 3. Generate Sinhala Content (කලින් මාතෘකාව යවයි)
-    console.log(`Instructing Gemini: Do not repeat '${lastTopic}'`);
-    const postText = await generateSinhalaContent(lastTopic); 
+    // 3. Generate Sinhala Content (ආවරණය කළ මාතෘකා ලැයිස්තුව යවයි)
+    console.log(`Instructing Gemini: Do not repeat topics: ${coveredTopics.join(', ')}`);
+    const postText = await generateSinhalaContent(coveredTopics); 
     if (!postText) {
         return { success: false, message: 'Failed to generate content via Gemini.' }; 
     }
@@ -153,11 +160,13 @@ async function runDailyPostWorkflow(env) {
         // 5. Set Flag & Store New Topic
         await env.POST_STATUS_KV.put(DAILY_POST_KV_KEY, 'POSTED', { expirationTtl: 86400 }); 
         
-        // 🛑 නව මාතෘකාව Save කිරීම
+        // නව මාතෘකාව Array එකට එකතු කර නැවත Save කිරීම
         const newTopic = extractTopicFromPost(postText);
-        await env.POST_STATUS_KV.put(LAST_TOPIC_KV_KEY, newTopic, { expirationTtl: 2592000 }); // මාසයකට ගබඩා කරයි
+        coveredTopics.push(newTopic);
+        // මාසයකට ගබඩා කරයි (මූලික මාතෘකා ආවරණය වන තුරු)
+        await env.POST_STATUS_KV.put(TOPICS_COVERED_KV_KEY, JSON.stringify(coveredTopics), { expirationTtl: 2592000 }); 
         
-        console.log(`[${todayKey}] Post sent successfully. New topic stored for tomorrow: ${newTopic}`);
+        console.log(`[${todayKey}] Post sent successfully. New topic stored: ${newTopic}. Total covered: ${coveredTopics.length}`);
         return { success: true, message: 'Daily trading education post completed successfully.' };
     } else {
         console.log(`[${todayKey}] Telegram post failed. KV flag NOT set.`);
