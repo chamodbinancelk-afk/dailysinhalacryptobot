@@ -1,5 +1,4 @@
 // --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ) ---
-// ⚠️ ඔබගේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
 
 const CONFIG = {
     // 🛑 ඔබේ Bot Token එක
@@ -10,8 +9,6 @@ const CONFIG = {
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
-    
-    // GITHUB URL අවශ්‍ය නොවේ! 
 };
 
 // --- 1. CORE FUNCTIONS ---
@@ -136,7 +133,7 @@ async function runDailyPostWorkflow(env) {
     }
     
     // 2. ආවරණය කළ මාතෘකා ලැයිස්තුව ලබා ගැනීම
-    // මුල් වරට දෝෂය ඇති වූ "Support and Resistance" සහ "Candlesticks" Default ලෙස තබා ඇත.
+    // මූලික මාතෘකා Default කර ඇත.
     const coveredTopicsJson = await env.POST_STATUS_KV.get(TOPICS_COVERED_KV_KEY) || '["Support and Resistance", "Candlesticks", "Money Management"]'; 
     let coveredTopics;
     try {
@@ -158,13 +155,16 @@ async function runDailyPostWorkflow(env) {
 
     if (postSuccess) {
         // 5. Set Flag & Store New Topic
+        
+        // 🛑 දිනපතා Post කළ බවට වූ Flag එක පැය 24 කට තබයි.
         await env.POST_STATUS_KV.put(DAILY_POST_KV_KEY, 'POSTED', { expirationTtl: 86400 }); 
         
         // නව මාතෘකාව Array එකට එකතු කර නැවත Save කිරීම
         const newTopic = extractTopicFromPost(postText);
         coveredTopics.push(newTopic);
-        // මාසයකට ගබඩා කරයි (මූලික මාතෘකා ආවරණය වන තුරු)
-        await env.POST_STATUS_KV.put(TOPICS_COVERED_KV_KEY, JSON.stringify(coveredTopics), { expirationTtl: 2592000 }); 
+        
+        // 🛑 ආවරණය කළ මාතෘකා ලැයිස්තුව 'සදහටම' ගබඩා කරයි (No TTL).
+        await env.POST_STATUS_KV.put(TOPICS_COVERED_KV_KEY, JSON.stringify(coveredTopics)); 
         
         console.log(`[${todayKey}] Post sent successfully. New topic stored: ${newTopic}. Total covered: ${coveredTopics.length}`);
         return { success: true, message: 'Daily trading education post completed successfully.' };
