@@ -5,20 +5,27 @@ const CONFIG = {
     // 🛑 ඔබේ Bot Token එක
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
     
-    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Manual Post සඳහා)
+    // 🛑 ඔබේ Channel/Group Chat ID එක (Scheduled Post සඳහා)
     TELEGRAM_CHAT_ID: "1901997764", 
+    
+    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Rate Limit අදාළ නොවන Owner ID)
+    OWNER_CHAT_ID: "1901997764", // <<-- මෙය ඔබගේ ID එක බවට වග බලා ගන්න!
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
     
     // Telegram API Endpoint Base URL එක
-    TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q` 
+    TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`,
+    
+    // දිනකට උපරිම අවසර ලත් භාවිතය
+    DAILY_LIMIT: 5
 };
 
 // --- 1. CORE AI FUNCTIONS ---
 
 // A. Gemini API call for Daily Scheduled Posts
 async function generateScheduledContent(coveredTopics) { 
+    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const excludedTopicsString = coveredTopics.join(', ');
@@ -59,6 +66,7 @@ async function generateScheduledContent(coveredTopics) {
 
 // B. Gemini API call for Live Chatbot Replies (Full Post Format)
 async function generateReplyContent(userQuestion) {
+    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const systemPrompt = `
@@ -96,6 +104,7 @@ async function generateReplyContent(userQuestion) {
 
 // C. Gemini API call for Trading Topic Validation
 async function validateTopic(userQuestion) {
+    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const systemPrompt = `
@@ -130,6 +139,7 @@ async function validateTopic(userQuestion) {
 
 // D. Telegram API call (Send Text Message - Manual Post)
 async function sendTelegramMessage(caption) {
+    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
         const response = await fetch(TELEGRAM_API_ENDPOINT, {
@@ -149,8 +159,8 @@ async function sendTelegramMessage(caption) {
 }
 
 // E. Telegram API call (User Reply Send කිරීමට)
-// 🛑 දැන් Message ID එකක් ආපසු ලබා දේ!
 async function sendTelegramReply(chatId, text, messageId) {
+    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
         const response = await fetch(TELEGRAM_API_ENDPOINT, {
@@ -165,15 +175,15 @@ async function sendTelegramReply(chatId, text, messageId) {
         });
         
         const data = await response.json();
-        // සාර්ථක නම්, new message ID එක ආපසු ලබා දේ
         return data.ok ? data.result.message_id : null; 
     } catch (e) {
         return null;
     }
 }
 
-// 🛑 F. නව Function එක: පණිවිඩයක් Edit කිරීමට
+// F. පණිවිඩයක් Edit කිරීමට
 async function editTelegramMessage(chatId, messageId, text) {
+    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
     try {
         const response = await fetch(TELEGRAM_API_ENDPOINT, {
@@ -192,6 +202,29 @@ async function editTelegramMessage(chatId, messageId, text) {
     }
 }
 
+// 🛑 G. නව Function එක: Keyboard එකක් සමඟ පණිවිඩයක් Edit කිරීමට (Limit Message සඳහා)
+async function editTelegramMessageWithKeyboard(chatId, messageId, text, keyboard) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
+    try {
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId, 
+                message_id: messageId, 
+                text: text,
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: keyboard
+                }
+            }),
+        });
+        return response.ok;
+    } catch (e) {
+        return false;
+    }
+}
+
 // --- 3. HELPER FUNCTIONS ---
 
 function extractTopicFromPost(postText) {
@@ -200,9 +233,48 @@ function extractTopicFromPost(postText) {
     return titleLine.substring(0, 50).replace(/[*_]/g, '').trim(); 
 }
 
+// Owner ගේ Contact Link එක ලබා දේ
+function getOwnerContactLink() {
+    // 🛑 කරුණාකර 'YourTelegramUsername' වෙනුවට ඔබේ සැබෑ Telegram Username එක යොදන්න.
+    const ownerUsername = 'YourTelegramUsername'; 
+    return `https://t.me/${ownerUsername}`;
+}
+
+// 🛑 H. දෛනික භාවිතය පරීක්ෂා කිරීම සහ වැඩි කිරීම
+async function checkAndIncrementUsage(env, chatId) {
+    // Owner ට සීමාවන් නැත
+    if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString()) {
+        return { allowed: true, count: 'Unlimited' };
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const KV_KEY = `usage:${today}:${chatId}`;
+
+    // වත්මන් භාවිතය ලබා ගන්න
+    const currentUsageStr = await env.POST_STATUS_KV.get(KV_KEY);
+    let currentUsage = parseInt(currentUsageStr) || 0;
+
+    if (currentUsage >= CONFIG.DAILY_LIMIT) {
+        return { allowed: false, count: currentUsage };
+    }
+
+    // භාවිතය වැඩි කරන්න (Trading Topic එකක් නම් පමණක්)
+    currentUsage += 1;
+    
+    // මධ්‍යම රාත්‍රියේදී Reset වීමට expirationTtl (තත්පර වලින්) සකසන්න.
+    const now = new Date();
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0); // හෙට දවසේ ආරම්භය
+    const expirationTtl = Math.max(1, Math.ceil((endOfDay.getTime() - now.getTime()) / 1000)); 
+    
+    await env.POST_STATUS_KV.put(KV_KEY, currentUsage.toString(), { expirationTtl: expirationTtl });
+
+    return { allowed: true, count: currentUsage };
+}
+
 // --- 4. MAIN WORKFLOW (FOR SCHEDULED POSTS) ---
 
 async function runDailyPostWorkflow(env) {
+    // ... (මෙම function එක නොවෙනස්ව තබමු)
     if (!env.POST_STATUS_KV) return { success: false, message: 'KV Binding is missing.' };
 
     const todayKey = new Date().toISOString().slice(0, 10); 
@@ -252,40 +324,76 @@ async function handleWebhook(request, env) {
             const messageId = message.message_id;
             const text = message.text.trim();
             
-            // Command (e.g., /start)
+            // --- ADMIN COMMANDS (Owner Only) ---
+            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/unlimit')) {
+                const parts = text.split(' ');
+                if (parts.length === 2) {
+                    const targetChatId = parts[1].trim();
+                    const today = new Date().toISOString().slice(0, 10);
+                    const KV_KEY = `usage:${today}:${targetChatId}`;
+                    
+                    // KV එකෙන් එම යතුර ඉවත් කිරීම
+                    await env.POST_STATUS_KV.delete(KV_KEY);
+                    
+                    const successMessage = `✅ *User Limit Removed!* \n\nUser ID: \`${targetChatId}\` ගේ දෛනික සීමාව (limit) අද දින සඳහා සාර්ථකව ඉවත් කරන ලදී.`;
+                    await sendTelegramReply(chatId, successMessage, messageId);
+                    return new Response('Admin command processed', { status: 200 });
+                } else {
+                    await sendTelegramReply(chatId, "⚠️ *Usage:* /unlimit [User_Chat_ID_Eka]", messageId);
+                    return new Response('Admin command error', { status: 200 });
+                }
+            }
+            
+            // --- REGULAR COMMANDS (/start, /help) ---
             if (text.startsWith('/')) {
                 const command = text.split(' ')[0].toLowerCase();
                 if (command === '/start' || command === '/help') {
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nI can only answer questions about **Trading and Finance** in a detailed post format. \n\nTry asking me: 'Order Flow කියන්නේ මොකද්ද?'";
+                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k witharai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
                     await sendTelegramReply(chatId, welcomeMessage, messageId);
                 }
                 return new Response('Command processed', { status: 200 });
             }
 
-            // Trading Question Logic
+            // --- TRADING QUESTION LOGIC ---
             if (text.length > 5) {
                 
-                // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව
-                const validationMessageId = await sendTelegramReply(chatId, "⏳ *Validating Topic*", messageId);
+                // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව (Singlish)
+                const validationMessageId = await sendTelegramReply(chatId, "⏳ *Topic Validating...*", messageId);
                 const isTradingTopic = await validateTopic(text); 
                 
                 if (isTradingTopic) {
                     
-                    // 2. 🌐 Searching Status - Search කරන බව පෙන්වීම
-                    await editTelegramMessage(chatId, validationMessageId, "🌐 *Searching the Web...*");
+                    // 2. 🛑 Rate Limit Check
+                    const usageResult = await checkAndIncrementUsage(env, chatId);
                     
-                    // 3. 🧠 Generation Status - AI පිළිතුර ජනනය කරන බව පෙන්වීම
+                    if (!usageResult.allowed) {
+                        // Rate Limit ඉක්මවා ඇත්නම්
+                        const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Oyata unlimited access one nam,* ownerwa contact karanna:`;
+                        
+                        const keyboard = [
+                            [{ text: "👑 Limit Eka Ain Kara Ganna (Contact Owner)", url: getOwnerContactLink() }]
+                        ];
+                        
+                        // Inline Button එකක් සමඟ Message එක Edit කිරීම
+                        await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
+                        return new Response('Rate limited with inline button', { status: 200 });
+                    }
+                    
+                    // 3. 🌐 Searching Status (Singlish)
+                    await editTelegramMessage(chatId, validationMessageId, "🌐 *Search The Web...*");
+                    
+                    // 4. 🧠 Generation Status (Singlish)
                     await editTelegramMessage(chatId, validationMessageId, "✍️ *Generating Reply...*");
                     
-                    // 4. 🔗 Final Content Generation
+                    // 5. 🔗 Final Content Generation
                     const replyText = await generateReplyContent(text);
                     
-                    // 5. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
+                    // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
                     await editTelegramMessage(chatId, validationMessageId, replyText);
                     
                 } else {
-                    // Not a Trading Question - Guardrail Message
-                    const guardrailMessage = "⚠️ *Sorry, I am programmed to answer only Trading, Finance, or Crypto-related questions.* \nPlease ask something like: 'What is RSI?' or 'Money management walata tips denna.'";
+                    // Not a Trading Question - Guardrail Message (Singlish)
+                    const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
                     await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
                 }
             }
