@@ -11,13 +11,13 @@ const CONFIG = {
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
     
-    // Telegram API Endpoint Base URL එක (Token එක config එකෙන් auto ගන්නවා)
+    // Telegram API Endpoint Base URL එක
     TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q` 
 };
 
 // --- 1. CORE AI FUNCTIONS ---
 
-// A. Gemini API call for Daily Scheduled Posts (මාතෘකා පුනරාවර්තනය වළක්වයි)
+// A. Gemini API call for Daily Scheduled Posts
 async function generateScheduledContent(coveredTopics) { 
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
@@ -28,8 +28,8 @@ async function generateScheduledContent(coveredTopics) {
         The topics covered so far and MUST BE AVOIDED are: [${excludedTopicsString}].
         
         Your task is to:
-        1. **Systematic Topic Selection:** Use the 'google_search' tool to select a fundamental trading topic from the beginner's curriculum. Topics MUST include core elements like: **Candlesticks, Support and Resistance, Money Management, Chart Patterns, Fibonacci Tools, and basic Indicators (RSI, Moving Averages)**. Ensure the selected topic is *different* from ALL previous topics to maintain a progressive learning path.
-        2. **Content Generation:** Generate a high-quality, 5-paragraph educational post in **SINHALA-ENGLISH MIXED LANGUAGE (SINGLISH)** based on that concept. The post must explain the concept simply, provide a practical example, and encourage the beginner.
+        1. **Systematic Topic Selection:** Use the 'google_search' tool to select a fundamental trading topic from the beginner's curriculum. Topics MUST include core elements like: **Candlesticks, Support and Resistance, Money Management, Chart Patterns, Fibonacci Tools, and basic Indicators (RSI, Moving Averages)**.
+        2. **Content Generation:** Generate a high-quality, 5-paragraph educational post in **SINHALA-ENGLISH MIXED LANGUAGE (SINGLISH)**.
         3. The post must be well-formatted using Telegram's **Markdown**. The first line must be a clear title indicating the topic.
         
         Your final output must contain ONLY the content of the post.
@@ -49,17 +49,10 @@ async function generateScheduledContent(coveredTopics) {
             }),
         });
 
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error(`Gemini Scheduled API HTTP Error: Status ${response.status} - ${errorBody}`);
-            return null;
-        }
-
         const data = await response.json();
         return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
 
     } catch (e) {
-        console.error("Gemini Scheduled Generation Exception:", e);
         return null;
     }
 }
@@ -93,24 +86,49 @@ async function generateReplyContent(userQuestion) {
             }),
         });
 
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error(`Gemini Reply API HTTP Error: Status ${response.status} - ${errorBody}`);
-            return "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. කරුණාකර නැවත උත්සාහ කරන්න. (API Error)";
-        }
-
         const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. (Content Missing)";
+        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. කරුණාකර නැවත උත්සාහ කරන්න. (Content Missing)";
 
     } catch (e) {
-        console.error("Gemini Reply Generation Exception:", e);
         return "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. (Exception)";
+    }
+}
+
+// C. Gemini API call for Trading Topic Validation
+async function validateTopic(userQuestion) {
+    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+    
+    const systemPrompt = `
+        You are an AI classifier. Your task is to determine if the user's query is strictly related to **Trading, Finance, Investing, Cryptocurrency, Forex, or the Stock Market**.
+        
+        If the query is directly related to any of these financial topics, respond ONLY with the word "YES".
+        If the query is about any other subject (general knowledge, politics, sports, entertainment, personal advice, etc.), respond ONLY with the word "NO".
+    `;
+    
+    try {
+        const response = await fetch(GEMINI_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: "user", parts: [{ text: userQuestion }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: { temperature: 0.1 } 
+            }),
+        });
+
+        const data = await response.json();
+        const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
+        
+        return result === 'YES';
+        
+    } catch (e) {
+        return true; 
     }
 }
 
 // --- 2. CORE TELEGRAM FUNCTIONS ---
 
-// C. Telegram API call (Send Text Message - Manual Post)
+// D. Telegram API call (Send Text Message - Manual Post)
 async function sendTelegramMessage(caption) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
@@ -124,19 +142,14 @@ async function sendTelegramMessage(caption) {
             }),
         });
         
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Telegram Send Error: Status ${response.status} - ${errorText}`);
-        }
-
         return response.ok;
     } catch (e) {
-        console.error("Telegram Send Exception:", e);
         return false;
     }
 }
 
-// D. Telegram API call (User Reply Send කිරීමට)
+// E. Telegram API call (User Reply Send කිරීමට)
+// 🛑 දැන් Message ID එකක් ආපසු ලබා දේ!
 async function sendTelegramReply(chatId, text, messageId) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
@@ -147,18 +160,34 @@ async function sendTelegramReply(chatId, text, messageId) {
                 chat_id: chatId, 
                 text: text,
                 parse_mode: 'Markdown',
-                reply_to_message_id: messageId // Reply කිරීමට යොදා ගනී
+                reply_to_message_id: messageId 
             }),
         });
         
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Telegram Reply Error: Status ${response.status} - ${errorText}`);
-        }
+        const data = await response.json();
+        // සාර්ථක නම්, new message ID එක ආපසු ලබා දේ
+        return data.ok ? data.result.message_id : null; 
+    } catch (e) {
+        return null;
+    }
+}
 
+// 🛑 F. නව Function එක: පණිවිඩයක් Edit කිරීමට
+async function editTelegramMessage(chatId, messageId, text) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
+    try {
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId, 
+                message_id: messageId, 
+                text: text,
+                parse_mode: 'Markdown'
+            }),
+        });
         return response.ok;
     } catch (e) {
-        console.error("Telegram Reply Exception:", e);
         return false;
     }
 }
@@ -168,7 +197,6 @@ async function sendTelegramReply(chatId, text, messageId) {
 function extractTopicFromPost(postText) {
     if (!postText) return 'Unknown Topic';
     const titleLine = postText.split('\n')[0].trim();
-    // Markdown symbols ඉවත් කර, මුල් අකුරු 50 ගනී
     return titleLine.substring(0, 50).replace(/[*_]/g, '').trim(); 
 }
 
@@ -184,8 +212,6 @@ async function runDailyPostWorkflow(env) {
     const status = await env.POST_STATUS_KV.get(DAILY_POST_KV_KEY);
     if (status === 'POSTED') return { success: true, message: 'Trading Post already sent.' };
     
-    // ආවරණය කළ මාතෘකා ලැයිස්තුව ලබා ගැනීම
-    // Default topics: පෙර ඇති වූ දෝෂ නිවැරදි කිරීම සඳහා යොදා ඇත.
     const coveredTopicsJson = await env.POST_STATUS_KV.get(TOPICS_COVERED_KV_KEY) || '["Support and Resistance", "Candlesticks", "Money Management"]'; 
     let coveredTopics;
     try {
@@ -194,20 +220,15 @@ async function runDailyPostWorkflow(env) {
         coveredTopics = ["Support and Resistance", "Candlesticks", "Money Management"];
     }
 
-    // Generate Sinhala Content (Scheduled)
     const postText = await generateScheduledContent(coveredTopics); 
     if (!postText) return { success: false, message: 'Failed to generate content via Gemini.' }; 
     
-    // Send Post to Telegram (Scheduled)
     const postSuccess = await sendTelegramMessage(postText);
 
     if (postSuccess) {
-        // Set Daily Flag (පැය 24 කට)
         await env.POST_STATUS_KV.put(DAILY_POST_KV_KEY, 'POSTED', { expirationTtl: 86400 }); 
         
-        // නව මාතෘකාව Array එකට එකතු කර සදහටම Save කිරීම (No TTL)
         const newTopic = extractTopicFromPost(postText);
-        // අලුත් මාතෘකාව කලින් ආවරණය කර ඇත්දැයි පරීක්ෂා කර එකතු කරයි (Duplicate වළක්වයි)
         if (!coveredTopics.includes(newTopic)) {
             coveredTopics.push(newTopic);
         }
@@ -235,24 +256,44 @@ async function handleWebhook(request, env) {
             if (text.startsWith('/')) {
                 const command = text.split(' ')[0].toLowerCase();
                 if (command === '/start' || command === '/help') {
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nI am here to answer your trading and crypto questions in a detailed Sinhala-English mix format (like a full post!). \n\nTry asking me: 'Order Flow කියන්නේ මොකද්ද?'";
+                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nI can only answer questions about **Trading and Finance** in a detailed post format. \n\nTry asking me: 'Order Flow කියන්නේ මොකද්ද?'";
                     await sendTelegramReply(chatId, welcomeMessage, messageId);
                 }
                 return new Response('Command processed', { status: 200 });
             }
 
-            // Trading Question (Text Message)
+            // Trading Question Logic
             if (text.length > 5) {
-                // Gemini හරහා Full Post එකක් generate කිරීම
-                const replyText = await generateReplyContent(text);
-                await sendTelegramReply(chatId, replyText, messageId);
+                
+                // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව
+                const validationMessageId = await sendTelegramReply(chatId, "⏳ *Validating Topic*", messageId);
+                const isTradingTopic = await validateTopic(text); 
+                
+                if (isTradingTopic) {
+                    
+                    // 2. 🌐 Searching Status - Search කරන බව පෙන්වීම
+                    await editTelegramMessage(chatId, validationMessageId, "🌐 *Searching the Web...*");
+                    
+                    // 3. 🧠 Generation Status - AI පිළිතුර ජනනය කරන බව පෙන්වීම
+                    await editTelegramMessage(chatId, validationMessageId, "✍️ *Generating Reply...*");
+                    
+                    // 4. 🔗 Final Content Generation
+                    const replyText = await generateReplyContent(text);
+                    
+                    // 5. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
+                    await editTelegramMessage(chatId, validationMessageId, replyText);
+                    
+                } else {
+                    // Not a Trading Question - Guardrail Message
+                    const guardrailMessage = "⚠️ *Sorry, I am programmed to answer only Trading, Finance, or Crypto-related questions.* \nPlease ask something like: 'What is RSI?' or 'Money management walata tips denna.'";
+                    await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
+                }
             }
         }
     } catch (e) {
         console.error("Error processing webhook:", e);
     }
     
-    // Telegram API එකට අවශ්‍යය පරිදි 200 OK එකක් ආපසු එවයි
     return new Response('OK', { status: 200 });
 }
 
@@ -277,7 +318,6 @@ export default {
             return handleWebhook(request, env);
         }
         
-        // Default response
         return new Response('Worker running. Use the scheduled trigger, /trigger-manual, or set up the Telegram webhook.', { status: 200 });
     }
 };
