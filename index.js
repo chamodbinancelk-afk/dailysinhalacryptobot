@@ -6,10 +6,10 @@ const CONFIG = {
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
     
     // 🛑 ඔබේ Channel/Group Chat ID එක (Scheduled Post සඳහා)
-    TELEGRAM_CHAT_ID: "1901997764", 
+    TELEGRAM_CHAT_ID: "-1003111341307", 
     
     // 🛑 ඔබේ පුද්ගලික Chat ID එක (Rate Limit අදාළ නොවන Owner ID)
-    OWNER_CHAT_ID: "1901997764", // <<-- මෙය ඔබගේ ID එක බවට වග බලා ගන්න!
+    OWNER_CHAT_ID: "6762786795", // <<-- මෙය ඔබගේ ID එක බවට වග බලා ගන්න!
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
@@ -237,7 +237,7 @@ function extractTopicFromPost(postText) {
 function getOwnerContactLink() {
     // 🛑 කරුණාකර 'YourTelegramUsername' වෙනුවට ඔබේ සැබෑ Telegram Username එක යොදන්න.
     const ownerUsername = 'YourTelegramUsername'; 
-    return `https://t.me/${ownerUsername}`;
+    return `https://t.me/${Mrchamo_Lk}`;
 }
 
 // 🛑 H. දෛනික භාවිතය පරීක්ෂා කිරීම සහ වැඩි කිරීම
