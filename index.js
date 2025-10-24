@@ -6,10 +6,10 @@ const CONFIG = {
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
     
     // 🛑 ඔබේ Channel/Group Chat ID එක (Scheduled Post සඳහා)
-    TELEGRAM_CHAT_ID: "-1003111341307", 
+    TELEGRAM_CHAT_ID: "1901997764", 
     
     // 🛑 ඔබේ පුද්ගලික Chat ID එක (Rate Limit අදාළ නොවන Owner ID)
-    OWNER_CHAT_ID: "6762786795", // <<-- මෙය ඔබගේ ID එක බවට වග බලා ගන්න!
+    OWNER_CHAT_ID: "6762786795", 
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
@@ -25,24 +25,24 @@ const CONFIG = {
 
 // A. Gemini API call for Daily Scheduled Posts
 async function generateScheduledContent(coveredTopics) { 
-    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const excludedTopicsString = coveredTopics.join(', ');
     
+    // 🛑 සිංහල භාෂාව ඉල්ලීමට වෙනස් කරන ලදි
     const systemPrompt = `
         You are an expert financial and trading educator. Your primary goal is to provide daily, **step-by-step** foundational trading education for absolute beginners.
         The topics covered so far and MUST BE AVOIDED are: [${excludedTopicsString}].
         
         Your task is to:
         1. **Systematic Topic Selection:** Use the 'google_search' tool to select a fundamental trading topic from the beginner's curriculum. Topics MUST include core elements like: **Candlesticks, Support and Resistance, Money Management, Chart Patterns, Fibonacci Tools, and basic Indicators (RSI, Moving Averages)**.
-        2. **Content Generation:** Generate a high-quality, 5-paragraph educational post in **SINHALA-ENGLISH MIXED LANGUAGE (SINGLISH)**.
+        2. **Content Generation:** Generate a high-quality, 5-paragraph educational post using **clear SINHALA language (සිංහල අක්ෂර / Unicode)** mixed with necessary English trading terms.
         3. The post must be well-formatted using Telegram's **Markdown**. The first line must be a clear title indicating the topic.
         
         Your final output must contain ONLY the content of the post.
     `;
     
-    const userQuery = "Generate today's new, progressive, and engaging Singlish educational trading post for beginners.";
+    const userQuery = "Generate today's new, progressive, and engaging Sinhala educational trading post for beginners.";
 
     try {
         const response = await fetch(GEMINI_API_ENDPOINT, {
@@ -66,18 +66,18 @@ async function generateScheduledContent(coveredTopics) {
 
 // B. Gemini API call for Live Chatbot Replies (Full Post Format)
 async function generateReplyContent(userQuestion) {
-    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
+    // 🛑 සිංහල භාෂාව ඉල්ලීමට වෙනස් කරන ලදි
     const systemPrompt = `
         You are a detailed, expert financial and trading assistant. A user has asked you a specific question about a trading concept (e.g., Order Flow, Liquidity).
         
         Your task is to:
         1. Use the 'google_search' tool to get the most accurate and educational information for the user's question.
         2. Generate a **DETAILED, EDUCATIONAL RESPONSE**. The response must be **5 PARAGRAPHS** long to cover the concept fully (Definition, Importance, How to Use, Examples, and Summary).
-        3. Use **SINHALA-ENGLISH MIXED LANGUAGE (SINGLISH)** throughout the response.
+        3. Use **clear SINHALA language (සිංහල අක්ෂර / Unicode)** mixed with necessary English trading terms throughout the response.
         4. The response must be well-formatted using Telegram's **Markdown** (bolding key terms, using lists, and emojis).
-        5. The first line of the response MUST be a clear title based on the question (e.g., "*Order Flow Concept eka Mokadda?*").
+        5. The first line of the response MUST be a clear title based on the question (e.g., "*Order Flow Concept එක මොකද්ද?*").
 
         Your final output must contain ONLY the content of the response. DO NOT include any English wrappers.
     `;
@@ -104,7 +104,6 @@ async function generateReplyContent(userQuestion) {
 
 // C. Gemini API call for Trading Topic Validation
 async function validateTopic(userQuestion) {
-    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const systemPrompt = `
@@ -139,7 +138,6 @@ async function validateTopic(userQuestion) {
 
 // D. Telegram API call (Send Text Message - Manual Post)
 async function sendTelegramMessage(caption) {
-    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
         const response = await fetch(TELEGRAM_API_ENDPOINT, {
@@ -160,7 +158,6 @@ async function sendTelegramMessage(caption) {
 
 // E. Telegram API call (User Reply Send කිරීමට)
 async function sendTelegramReply(chatId, text, messageId) {
-    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
         const response = await fetch(TELEGRAM_API_ENDPOINT, {
@@ -183,7 +180,6 @@ async function sendTelegramReply(chatId, text, messageId) {
 
 // F. පණිවිඩයක් Edit කිරීමට
 async function editTelegramMessage(chatId, messageId, text) {
-    // ... (මෙම function එක නොවෙනස්ව තබමු)
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
     try {
         const response = await fetch(TELEGRAM_API_ENDPOINT, {
@@ -202,7 +198,7 @@ async function editTelegramMessage(chatId, messageId, text) {
     }
 }
 
-// 🛑 G. නව Function එක: Keyboard එකක් සමඟ පණිවිඩයක් Edit කිරීමට (Limit Message සඳහා)
+// G. Keyboard එකක් සමඟ පණිවිඩයක් Edit කිරීමට (Limit Message සඳහා)
 async function editTelegramMessageWithKeyboard(chatId, messageId, text, keyboard) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
     try {
@@ -233,14 +229,14 @@ function extractTopicFromPost(postText) {
     return titleLine.substring(0, 50).replace(/[*_]/g, '').trim(); 
 }
 
-// Owner ගේ Contact Link එක ලබා දේ
+// H. Owner ගේ Contact Link එක ලබා දේ
 function getOwnerContactLink() {
-    // 🛑 කරුණාකර 'YourTelegramUsername' වෙනුවට ඔබේ සැබෑ Telegram Username එක යොදන්න.
-    const ownerUsername = 'YourTelegramUsername'; 
-    return `https://t.me/${Mrchamo_Lk}`;
+    // Owner ගේ නිවැරදි Telegram Username එක: Mrchamo_Lk
+    const ownerUsername = 'Mrchamo_Lk'; 
+    return `https://t.me/${ownerUsername}`;
 }
 
-// 🛑 H. දෛනික භාවිතය පරීක්ෂා කිරීම සහ වැඩි කිරීම
+// I. දෛනික භාවිතය පරීක්ෂා කිරීම සහ වැඩි කිරීම
 async function checkAndIncrementUsage(env, chatId) {
     // Owner ට සීමාවන් නැත
     if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString()) {
@@ -271,10 +267,10 @@ async function checkAndIncrementUsage(env, chatId) {
     return { allowed: true, count: currentUsage };
 }
 
+
 // --- 4. MAIN WORKFLOW (FOR SCHEDULED POSTS) ---
 
 async function runDailyPostWorkflow(env) {
-    // ... (මෙම function එක නොවෙනස්ව තබමු)
     if (!env.POST_STATUS_KV) return { success: false, message: 'KV Binding is missing.' };
 
     const todayKey = new Date().toISOString().slice(0, 10); 
@@ -358,7 +354,7 @@ async function handleWebhook(request, env) {
             if (text.length > 5) {
                 
                 // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව (Singlish)
-                const validationMessageId = await sendTelegramReply(chatId, "⏳ *Topic Validating...*", messageId);
+                const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
                 const isTradingTopic = await validateTopic(text); 
                 
                 if (isTradingTopic) {
@@ -380,10 +376,10 @@ async function handleWebhook(request, env) {
                     }
                     
                     // 3. 🌐 Searching Status (Singlish)
-                    await editTelegramMessage(chatId, validationMessageId, "🌐 *Search The Web...*");
+                    await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
                     
                     // 4. 🧠 Generation Status (Singlish)
-                    await editTelegramMessage(chatId, validationMessageId, "✍️ *Generating Reply...*");
+                    await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
                     
                     // 5. 🔗 Final Content Generation
                     const replyText = await generateReplyContent(text);
