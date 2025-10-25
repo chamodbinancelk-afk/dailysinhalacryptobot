@@ -6,10 +6,10 @@ const CONFIG = {
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
     
     // 🛑 ඔබේ Channel/Group Chat ID එක (Lifetime Post එක යැවිය යුතු ස්ථානය)
-    TELEGRAM_CHAT_ID: "-1002947156921", // 🚨 FIX: ඔබ ලබා දුන් Channel ID එක
+    TELEGRAM_CHAT_ID: "-1002947156921", // ඔබ ලබා දුන් Channel ID එක
     
     // 🛑 ඔබේ පුද්ගලික Chat ID එක (Owner ගේ Private ID එක - String ලෙස තබන්න)
-    OWNER_CHAT_ID: "1901997764", // ඔබගේ සැබෑ Owner ID එක මෙය නොවේ නම් වෙනස් කරන්න
+    OWNER_CHAT_ID: "1901997764", // ඔබේ Owner ID එක මෙය නොවේ නම් වෙනස් කරන්න
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
@@ -23,9 +23,16 @@ const CONFIG = {
 
 // --- 1. CORE AI FUNCTIONS ---
 
-async function generateScheduledContent(coveredTopics) { 
+async function generateScheduledContent(env) { 
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+    
+    // 1. KV එකෙන් කලින් Post කළ Topics ලැයිස්තුව ලබා ගැනීම.
+    const coveredTopicsString = await env.POST_STATUS_KV.get('COVERED_TOPICS') || "[]";
+    let coveredTopics = JSON.parse(coveredTopicsString);
+    
+    // 2. දැනටමත් Post කර ඇති topics.
     const excludedTopicsString = coveredTopics.join(', ');
+    
     const systemPrompt = `
         You are an expert financial and trading educator. Your primary goal is to provide daily, **step-by-step** foundational trading education for absolute beginners.
         The topics covered so far and MUST BE AVOIDED are: [${excludedTopicsString}].
@@ -50,8 +57,28 @@ async function generateScheduledContent(coveredTopics) {
                 generationConfig: { temperature: 0.8 } 
             }),
         });
+        
         const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+        const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+        
+        if (content) {
+            // 3. Topic එක අලුතින් Post කළ Topics ලැයිස්තුවට එකතු කිරීම
+            const newTopicMatch = content.match(/\*([^*]+)\*/); // පළමු බෝල්ඩ් කර ඇති මාතෘකාව ලබා ගනී
+            const newTopic = newTopicMatch ? newTopicMatch[1].trim() : "Untitled Post";
+            
+            coveredTopics.push(newTopic);
+            
+            // KV එක යාවත්කාලීන කරන්න (Topic ලැයිස්තුව)
+            await env.POST_STATUS_KV.put('COVERED_TOPICS', JSON.stringify(coveredTopics));
+            
+            // අද Post කළ මාතෘකාව ද ගබඩා කරන්න
+            await env.POST_STATUS_KV.put('LAST_TRADING_TOPIC', newTopic);
+            
+            return content;
+        }
+
+        return null;
+        
     } catch (e) {
         return null;
     }
@@ -60,7 +87,7 @@ async function generateScheduledContent(coveredTopics) {
 async function generateReplyContent(userQuestion) {
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     const systemPrompt = `
-        You are a detailed, expert financial and trading assistant. A user has asked you a specific question about a trading concept (e.g., Order Flow, Liquidity).
+        You are a detailed, expert financial and trading assistant. A user has asked you a specific question or a short trading concept (e.g., RSI, Order Flow, Slippage).
         
         Your task is to:
         1. Use the 'google_search' tool to get the most accurate and educational information for the user's question.
@@ -558,62 +585,61 @@ async function handleWebhook(request, env) {
                 return new Response('Command processed', { status: 200 });
             }
 
-            // --- TRADING QUESTION LOGIC ---
-            if (text.length > 5) {
+            // --- TRADING QUESTION LOGIC (FIXED: Now handles short terms too!) ---
+            
+            // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව 
+            const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
+            const isTradingTopic = await validateTopic(text); 
+            
+            if (isTradingTopic) {
                 
-                // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව 
-                const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
-                const isTradingTopic = await validateTopic(text); 
+                // 2. 🛑 Rate Limit Check
+                const usageResult = await checkAndIncrementUsage(env, chatId);
                 
-                if (isTradingTopic) {
+                if (!usageResult.allowed) {
+                    // Rate Limit ඉක්මවා ඇත්නම්
+                    const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
                     
-                    // 2. 🛑 Rate Limit Check
-                    const usageResult = await checkAndIncrementUsage(env, chatId);
-                    
-                    if (!usageResult.allowed) {
-                        // Rate Limit ඉක්මවා ඇත්නම්
-                        const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
-                        
-                        // KV එකේ User Request තොරතුරු ගබඩා කිරීම
-                        const requestId = `REQ_${generateRandomId()}`;
-                        const requestData = {
-                            userChatId: chatId,
-                            userMessageId: validationMessageId, 
-                            targetUserId: userId,
-                            userFirstName: userFirstName,
-                            userName: userName
-                        };
-                        // Request එක පැය 24ක් සඳහා ගබඩා කිරීම
-                        await env.POST_STATUS_KV.put(`UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
+                    // KV එකේ User Request තොරතුරු ගබඩා කිරීම
+                    const requestId = `REQ_${generateRandomId()}`;
+                    const requestData = {
+                        userChatId: chatId,
+                        userMessageId: validationMessageId, 
+                        targetUserId: userId,
+                        userFirstName: userFirstName,
+                        userName: userName
+                    };
+                    // Request එක පැය 24ක් සඳහා ගබඩා කිරීම
+                    await env.POST_STATUS_KV.put(`UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
 
-                        // Button එකට යවන්නේ KV Key එක පමණයි
-                        const keyboard = [
-                            [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
-                        ];
-                        
-                        await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
-                        return new Response('Rate limited with inline request button', { status: 200 });
-                    }
+                    // Button එකට යවන්නේ KV Key එක පමණයි
+                    const keyboard = [
+                        [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
+                    ];
                     
-                    // 3. 🌐 Searching Status 
-                    await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
-                    
-                    // 4. 🧠 Generation Status 
-                    await sendTypingAction(chatId); 
-                    await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
-                    
-                    // 5. 🔗 Final Content Generation
-                    const replyText = await generateReplyContent(text);
-                    
-                    // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
-                    await editTelegramMessage(chatId, validationMessageId, replyText);
-                    
-                } else {
-                    // Not a Trading Question - Guardrail Message 
-                    const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
-                    await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
+                    await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
+                    return new Response('Rate limited with inline request button', { status: 200 });
                 }
+                
+                // 3. 🌐 Searching Status 
+                await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
+                
+                // 4. 🧠 Generation Status 
+                await sendTypingAction(chatId); 
+                await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
+                
+                // 5. 🔗 Final Content Generation
+                const replyText = await generateReplyContent(text);
+                
+                // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
+                await editTelegramMessage(chatId, validationMessageId, replyText);
+                
+            } else {
+                // Not a Trading Question - Guardrail Message 
+                const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
+                await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
             }
+            
         }
     } catch (e) {
         console.error("Error processing webhook:", e);
@@ -629,7 +655,7 @@ async function handleCallbackQuery(query, env) {
     const callbackQueryId = query.id;
     const userId = query.from.id;
 
-    // 1. 🛑 UNLIMIT REQUEST LOGIC (No Change)
+    // 1. 🛑 UNLIMIT REQUEST LOGIC 
     if (data.startsWith('REQUEST_UNLIMIT_')) {
         const requestId = data.substring('REQUEST_UNLIMIT_'.length);
         const requestDataStr = await env.POST_STATUS_KV.get(`UNLIMIT_REQUEST_${requestId}`);
@@ -785,17 +811,46 @@ async function handleCallbackQuery(query, env) {
     }
 }
 
-// --- 7. WORKER EXPORT ---
+// --- 7. WORKER EXPORT (FINAL CODE) ---
 export default {
     async scheduled(event, env, ctx) {
-        // ... (Scheduled Post code - මෙම කොටස ඔබගේ අවශ්‍යතාව පරිදි පුරවන්න)
+        // 1. Daily Content Generation (KV update logic inside)
+        const postContent = await generateScheduledContent(env); 
+        
+        if (postContent) {
+            // 2. Channel එකට Post එක යැවීම (CONFIG.TELEGRAM_CHAT_ID ට)
+            const success = await sendTelegramMessage(postContent); 
+            
+            // 3. KV එකේ Post Status එක ගබඩා කිරීම
+            const today = new Date().toISOString().slice(0, 10);
+            if (success) {
+                await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "POSTED");
+            } else {
+                await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "FAILED");
+                // Owner ට Fail වීමට හේතුව දැනුම් දීම (විකල්ප)
+                await sendTelegramReplyToOwner(`❌ Scheduled Daily Post එක අද දින (${today}) යැවීම අසාර්ථක විය. (Check logs)`);
+            }
+        }
     },
 
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         
+        // Manual Daily Post Trigger for Testing
         if (url.pathname === '/trigger-manual') {
-            // ... (Manual Daily Post trigger code - මෙම කොටස ඔබගේ අවශ්‍යතාව පරිදි පුරවන්න)
+            try {
+                 const postContent = await generateScheduledContent(env);
+                 if (postContent) {
+                    const success = await sendTelegramMessage(postContent); 
+                    if (success) {
+                        return new Response('✅ Manual Daily Post Triggered Successfully.', { status: 200 });
+                    }
+                    return new Response('❌ Manual Daily Post Failed to Send to Telegram. (Check logs)', { status: 500 });
+                 }
+                 return new Response('❌ Manual Daily Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
+            } catch (e) {
+                 return new Response(`Error in Manual Trigger: ${e.message}`, { status: 500 });
+            }
         }
 
         if (request.method === 'POST') {
