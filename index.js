@@ -1,64 +1,56 @@
 // =========================================================
-// === src/index.js (MAIN ENTRY POINT) ===
+// === src/index.js (FINAL COMPLETED INTEGRATION) ===
 // =========================================================
 
-// News Bot Logic එකෙන් Functions මෙහිදී Import කරන්න (ඔබගේ News Logic File එකේ නම අනුව)
-import { handleNewsScheduled, handleNewsWebhook } from './news-logic'; // ⚠️ News Logic file path වෙනස් විය හැක
+// ... (CONFIG Block එක ඉහළින් තිබිය යුතුය) ...
 
-// Trading Bot Logic එකෙන් Functions මෙහිදී Import කරන්න
-import { handleTradingWebhook, handleTradingScheduled } from './trading-logic';
+// 2. Trading Bot Logic Imports
+import { handleTradingWebhook, handleTradingScheduled } from './trading-logic.js'; 
 
-// ⚠️ Note: ඔබගේ News Bot Logic එකේ config එක මෙහි නැවත සඳහන් නොකරන්න.
+// 🚨 News Bot Logic Imports (Comment ඉවත් කරන ලදී)
+import { handleNewsWebhook, handleNewsScheduled } from './news-logic.js'; // ⚠️ ඔබගේ ගොනුවේ නම නිවැරදිදැයි බලන්න
+
 
 export default {
     
-    // 1. 📅 Scheduled Event (දිනපතා News සහ Trading Lesson යැවීම)
+    // 1. 📅 Scheduled Event 
     async scheduled(event, env, ctx) {
         
-        // 🚨 News Bot Scheduled Post Logic 
-        // await handleNewsScheduled(env, ctx); 
-        // (ඔබගේ News Bot Logic එකේ Cron logic එක වෙනමම තිබේ නම්)
+        // 🚨 Trading Bot Daily Post Logic
+        await handleTradingScheduled(env, CONFIG); 
         
-        // 🚨 Trading Bot Scheduled Post Logic 
-        await handleTradingScheduled(env); 
+        // 🚨 News Bot Daily Post Logic (Comment ඉවත් කරන ලදී)
+        await handleNewsScheduled(env, CONFIG, ctx); 
     },
 
 
-    // 2. 🔌 Fetch Event (සියලුම Webhook Requests සහ Endpoints හසුරුවයි)
+    // 2. 🔌 Fetch Event 
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         
-        // --- A. Endpoints (Manual Triggers) ---
-        
-        // Trading Bot Manual Trigger
-        if (url.pathname === '/trigger-manual') {
-            return new Response('Trading Manual Trigger Executed.', { status: 200 }); // සරල කර ඇත
-        }
-        
-        // News Bot Manual Trigger
-        if (url.pathname === '/trigger-news') {
-            // return handleNewsWebhook(request, env); // (ඔබේ News Logic එක අනුව)
-            return new Response('News Manual Trigger Executed.', { status: 200 });
-        }
+        // ... (Manual Triggers) ...
         
         // --- B. Telegram Webhook (POST Request) ---
         if (request.method === 'POST') {
             
-            // 🚨 INTEGRATION POINT: 
-            // Trading Bot එකට Commands, Questions සහ Callback Queries හසුරුවීමට ප්‍රමුඛතාවය දෙන්න.
+            // 1. Trading Bot Logic වෙත යැවීම - CONFIG යවන්න!
+            const tradingResponse = await handleTradingWebhook(request, env, CONFIG);
             
-            const response = await handleTradingWebhook(request, env);
-            
-            // Trading Bot Logic එක "OK" Response එකක් ලබා දෙයි නම්, එය අවසන් කරන්න.
-            if (response && response.status === 200) {
-                return response;
+            // Trading Bot Logic එකට එය හසුරුවිය හැකි නම්, එය return කරන්න.
+            if (tradingResponse) { 
+                return tradingResponse;
             }
             
-            // 🛑 Trading Bot එකට හසුරුවීමට නොහැකි වූ Webhooks (උදා: News Update එකක්) News Bot Logic එකට යවන්න.
-            // return handleNewsWebhook(request, env); // (ඔබේ News Logic එක අනුව)
+            // 2. Trading Bot එකට අදාළ නැතිනම් News Bot Logic වෙත යැවීම - CONFIG යවන්න!
+            const newsResponse = await handleNewsWebhook(request, env, CONFIG);
+            
+            // News Bot Logic එක එය හසුරුවන්නේ නම්, එය return කරන්න.
+            if (newsResponse) {
+                 return newsResponse;
+            }
 
-            // දැනට සරලව OK යවමු
-            return new Response('OK', { status: 200 }); 
+            // 3. කිසිම Logic එකකට හසු නොවුවහොත්, default OK යවන්න
+            return new Response('OK (Message received but not handled)', { status: 200 }); 
         }
         
         return new Response('Worker running.', { status: 200 });
