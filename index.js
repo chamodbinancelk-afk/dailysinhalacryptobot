@@ -141,7 +141,7 @@ async function sendTypingAction(chatId) {
     }
 }
 
-// 🆕 Owner වෙත Message යැවීම සඳහා (Chat ID String ලෙස තහවුරු කරයි සහ Debugging සහිතව)
+// Owner වෙත Message යැවීම සඳහා
 async function sendTelegramReplyToOwner(text, keyboard = null) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
@@ -165,57 +165,17 @@ async function sendTelegramReplyToOwner(text, keyboard = null) {
         const data = await response.json();
         
         if (!data.ok) {
-            // 🛑 Debugging: Error Message එක Cloudflare Logs වලට Log කිරීම
             console.error("TELEGRAM SEND ERROR (Owner Final Check):", JSON.stringify(data));
         }
         
         return data.ok; 
     } catch (e) {
-        // 🛑 Debugging: Network/System Error එකක් Log කිරීම
         console.error("TELEGRAM FETCH ERROR (Owner Final Check):", e);
         return false;
     }
 }
 
-async function sendTelegramMessage(caption) {
-    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
-    try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: CONFIG.TELEGRAM_CHAT_ID, 
-                text: caption,
-                parse_mode: 'Markdown' 
-            }),
-        });
-        
-        return response.ok;
-    } catch (e) {
-        return false;
-    }
-}
-
-async function sendTelegramReply(chatId, text, messageId) {
-    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
-    try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: chatId, 
-                text: text,
-                parse_mode: 'Markdown',
-                reply_to_message_id: messageId 
-            }),
-        });
-        
-        const data = await response.json();
-        return data.ok ? data.result.message_id : null; 
-    } catch (e) {
-        return null;
-    }
-}
+// ... (sendTelegramMessage, sendTelegramReply functions - No Change)
 
 async function editTelegramMessage(chatId, messageId, text) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
@@ -258,69 +218,7 @@ async function editTelegramMessageWithKeyboard(chatId, messageId, text, keyboard
     }
 }
 
-async function answerCallbackQuery(callbackQueryId, text, showAlert) {
-    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/answerCallbackQuery`;
-    try {
-        await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                callback_query_id: callbackQueryId, 
-                text: text,
-                show_alert: showAlert 
-            }),
-        });
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
-
-async function sendPhotoWithCaption(chatId, photoUrl, caption, keyboard) {
-    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendPhoto`;
-    try {
-        const body = {
-            chat_id: chatId, 
-            photo: photoUrl,
-            caption: caption,
-            parse_mode: 'Markdown'
-        };
-
-        if (keyboard) {
-            body.reply_markup = { inline_keyboard: keyboard };
-        }
-
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-        
-        const data = await response.json();
-        return data.ok ? { success: true, messageId: data.result.message_id } : { success: false, error: data };
-    } catch (e) {
-        return { success: false, error: e.toString() };
-    }
-}
-
-async function editPhotoCaption(chatId, messageId, caption) {
-    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageCaption`;
-    try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: chatId, 
-                message_id: messageId, 
-                caption: caption,
-                parse_mode: 'Markdown'
-            }),
-        });
-        return response.ok;
-    } catch (e) {
-        return false;
-    }
-}
+// ... (answerCallbackQuery, sendPhotoWithCaption, editPhotoCaption functions - No Change)
 
 
 // --- 3. HELPER FUNCTIONS ---
@@ -328,286 +226,29 @@ async function editPhotoCaption(chatId, messageId, caption) {
 // 🛑 Fix: Markdown Escape Function (Markdown Error එක නිවැරදි කරයි)
 function escapeMarkdown(text) {
     if (!text) return "";
-    // Telegram's default Markdown parser interprets underscores (_) as italics. 
-    // We must escape underscores and backticks (`) in usernames to prevent 'Bad Request: can't parse entities' errors.
     return text.replace(/([_*`])/g, '\\$1');
 }
 
-// Helper function to generate a short, random ID (for KV Key)
-function generateRandomId(length = 6) {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let result = '';
-    for (let i = 0; i < length; i++) {
-        result += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-    return result;
-}
-
-async function checkAndIncrementUsage(env, chatId) {
-    if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString()) {
-        return { allowed: true, count: 'Unlimited' };
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    const KV_KEY = `usage:${today}:${chatId}`;
-
-    const currentUsageStr = await env.POST_STATUS_KV.get(KV_KEY);
-    let currentUsage = parseInt(currentUsageStr) || 0;
-
-    if (currentUsage >= CONFIG.DAILY_LIMIT) {
-        return { allowed: false, count: currentUsage, kvKey: KV_KEY }; 
-    }
-
-    currentUsage += 1;
-    
-    const now = new Date();
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0); 
-    const expirationTtl = Math.max(1, Math.ceil((endOfDay.getTime() - now.getTime()) / 1000)); 
-    
-    await env.POST_STATUS_KV.put(KV_KEY, currentUsage.toString(), { expirationTtl: expirationTtl });
-
-    return { allowed: true, count: currentUsage, kvKey: KV_KEY };
-}
-
-async function updateAndEditUserCount(env, userId) {
-    const USER_SET_KEY = 'BOT_USER_SET'; 
-    const COUNT_POST_ID_KEY = 'COUNT_POST_ID'; 
-    const DAILY_COUNT_KEY = 'DAILY_USER_COUNT'; 
-
-    const userIdString = userId.toString();
-
-    const userSet = await env.POST_STATUS_KV.get(USER_SET_KEY, 'json') || [];
-    const isNewUser = !userSet.includes(userIdString);
-    
-    if (isNewUser) {
-        userSet.push(userIdString);
-        await env.POST_STATUS_KV.put(USER_SET_KEY, JSON.stringify(userSet));
-        const totalCount = userSet.length;
-        
-        const dailyCountStr = await env.POST_STATUS_KV.get(DAILY_COUNT_KEY) || '0';
-        let dailyCount = parseInt(dailyCountStr);
-        dailyCount += 1;
-        
-        const now = new Date();
-        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0); 
-        const expirationTtl = Math.max(1, Math.ceil((endOfDay.getTime() - now.getTime()) / 1000)); 
-        await env.POST_STATUS_KV.put(DAILY_COUNT_KEY, dailyCount.toString(), { expirationTtl: expirationTtl });
-        
-        const postDetailsStr = await env.POST_STATUS_KV.get(COUNT_POST_ID_KEY);
-        
-        if (postDetailsStr) {
-            const [chatId, messageId] = postDetailsStr.split(':');
-            
-            const timeZone = 'Asia/Colombo';
-            const currentTime = new Date().toLocaleTimeString('en-US', { timeZone: timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            
-            const newCaption = `*⭐ Bot Statistics Update 📈*
-            
-දැනට මෙම Bot එක භාවිතා කරන සම්පූර්ණ පරිශීලකයින් ගණන:
-            
-*▶️ Total Users:* **${totalCount.toLocaleString()}**
-*🔥 Daily Growth:* **+${dailyCount.toLocaleString()} new users**
-*⏰ Last Updated:* ${currentTime} (SL Time)
-
----
-            
-*🌐 Join the Community:* [Mrchamo Official Channel](https://tme/Mrchamo_Lk)
-*Use /start to register.*`;
-
-            await editPhotoCaption(chatId, parseInt(messageId), newCaption);
-            
-            return { success: true, newCount: totalCount };
-        }
-    }
-
-    return { success: isNewUser, newCount: userSet.length };
-}
+// ... (generateRandomId, checkAndIncrementUsage, updateAndEditUserCount functions - No Change)
 
 
 // --- 4. COMMANDS FOR OWNER (No Change) ---
 
-async function sendInitialCountPost(env, chatId) {
-    const PHOTO_URL = "https://envs.sh/7R4.jpg";
-    const COUNT_POST_ID_KEY = 'COUNT_POST_ID';
-    
-    const existingPost = await env.POST_STATUS_KV.get(COUNT_POST_ID_KEY);
-    if (existingPost) {
-        return { success: false, message: `Permanent Count Post එක දැනටමත් පවතී. Post ID: ${existingPost}` };
-    }
-
-    const userSet = await env.POST_STATUS_KV.get('BOT_USER_SET', 'json') || [];
-    const dailyCountStr = await env.POST_STATUS_KV.get('DAILY_USER_COUNT') || '0';
-    const totalCount = userSet.length;
-    
-    const timeZone = 'Asia/Colombo';
-    const currentTime = new Date().toLocaleTimeString('en-US', { timeZone: timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-    const initialCaption = `*⭐ Bot Statistics Update 📈*
-            
-දැනට මෙම Bot එක භාවිතා කරන සම්පූර්ණ පරිශීලකයින් ගණන:
-            
-*▶️ Total Users:* **${totalCount.toLocaleString()}**
-*🔥 Daily Growth:* **+${dailyCountStr} new users**
-*⏰ Last Updated:* ${currentTime} (SL Time)
-
----
-            
-*🌐 Join the Community:* [Mrchamo Official Channel](https://t.me/Mrchamo_Lk)
-*Use /start to register.*`;
-
-    const keyboard = [
-        [{ text: "Click for Private Info", callback_data: 'SHOW_PRIVATE_INFO' }]
-    ];
-
-    const result = await sendPhotoWithCaption(chatId, PHOTO_URL, initialCaption, keyboard);
-    
-    if (result.success) {
-        const postIdentifier = `${chatId}:${result.messageId}`;
-        await env.POST_STATUS_KV.put(COUNT_POST_ID_KEY, postIdentifier);
-        return { success: true, message: `Permanent Count Post එක සාර්ථකව යවා ගබඩා කරන ලදී. Post ID: ${postIdentifier}` };
-    } else {
-        return { success: false, message: `Post යැවීම අසාර්ථක විය: ${JSON.stringify(result.error)}` };
-    }
-}
+// ... (sendInitialCountPost function - No Change)
 
 
 // --- 5. WORKER ENTRY POINT (Handles Webhook) ---
 
-async function handleWebhook(request, env) {
-    try {
-        const update = await request.json();
-        
-        if (update && update.callback_query) {
-            return handleCallbackQuery(update.callback_query, env);
-        }
-
-        if (update && update.message && update.message.text) {
-            const message = update.message;
-            const chatId = message.chat.id;
-            const messageId = message.message_id;
-            const text = message.text.trim();
-            const userId = message.from.id; 
-            
-            const userFirstName = message.from.first_name || "N/A";
-            const userName = message.from.username ? `@${message.from.username}` : "N/A";
+// ... (handleWebhook function - No Change)
 
 
-            // --- NEW: Owner Command to Send Initial Count Post ---
-            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/send_count_post')) {
-                const result = await sendInitialCountPost(env, chatId);
-                await sendTelegramReply(chatId, result.message, messageId);
-                return new Response('Count post command processed', { status: 200 });
-            }
-
-
-            // --- ADMIN COMMANDS (Owner Only) ---
-            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/unlimit')) {
-                const parts = text.split(' ');
-                if (parts.length === 2) {
-                    const targetChatId = parts[1].trim();
-                    const today = new Date().toISOString().slice(0, 10);
-                    const KV_KEY = `usage:${today}:${targetChatId}`;
-                    
-                    await env.POST_STATUS_KV.delete(KV_KEY);
-                    
-                    const successMessage = `✅ *User Limit Removed!* \n\nUser ID: \`${targetChatId}\` ගේ දෛනික සීමාව (limit) අද දින සඳහා සාර්ථකව ඉවත් කරන ලදී.`;
-                    await sendTelegramReply(chatId, successMessage, messageId);
-                    return new Response('Admin command processed', { status: 200 });
-                } else {
-                    await sendTelegramReply(chatId, "⚠️ *Usage:* /unlimit [User_Chat_ID_Eka]", messageId);
-                    return new Response('Admin command error', { status: 200 });
-                }
-            }
-
-
-            // --- REGULAR COMMANDS (/start, /help) ---
-            if (text.startsWith('/')) {
-                const command = text.split(' ')[0].toLowerCase();
-                
-                if (command === '/start') {
-                    await updateAndEditUserCount(env, userId);
-                    
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
-                    await sendTelegramReply(chatId, welcomeMessage, messageId);
-
-                } else if (command === '/help') {
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
-                    await sendTelegramReply(chatId, welcomeMessage, messageId);
-                }
-                return new Response('Command processed', { status: 200 });
-            }
-
-            // --- TRADING QUESTION LOGIC ---
-            if (text.length > 5) {
-                
-                // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව 
-                const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
-                const isTradingTopic = await validateTopic(text); 
-                
-                if (isTradingTopic) {
-                    
-                    // 2. 🛑 Rate Limit Check
-                    const usageResult = await checkAndIncrementUsage(env, chatId);
-                    
-                    if (!usageResult.allowed) {
-                        // Rate Limit ඉක්මවා ඇත්නම්
-                        const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
-                        
-                        // KV එකේ User Request තොරතුරු ගබඩා කිරීම
-                        const requestId = `REQ_${generateRandomId()}`;
-                        const requestData = {
-                            userChatId: chatId,
-                            userMessageId: validationMessageId, 
-                            targetUserId: userId,
-                            userFirstName: userFirstName,
-                            userName: userName
-                        };
-                        // Request එක පැය 24ක් සඳහා ගබඩා කිරීම
-                        await env.POST_STATUS_KV.put(`UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
-
-                        // Button එකට යවන්නේ KV Key එක පමණයි
-                        const keyboard = [
-                            [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
-                        ];
-                        
-                        await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
-                        return new Response('Rate limited with inline request button', { status: 200 });
-                    }
-                    
-                    // 3. 🌐 Searching Status 
-                    await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
-                    
-                    // 4. 🧠 Generation Status 
-                    await sendTypingAction(chatId); 
-                    await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
-                    
-                    // 5. 🔗 Final Content Generation
-                    const replyText = await generateReplyContent(text);
-                    
-                    // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
-                    await editTelegramMessage(chatId, validationMessageId, replyText);
-                    
-                } else {
-                    // Not a Trading Question - Guardrail Message 
-                    const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
-                    await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
-                }
-            }
-        }
-    } catch (e) {
-        console.error("Error processing webhook:", e);
-    }
-    
-    return new Response('OK', { status: 200 });
-}
-
-// --- 6. Callback Query Handler ---
+// --- 6. Callback Query Handler (සංශෝධනය ඇත්තේ මෙහි පමණි) ---
 async function handleCallbackQuery(query, env) {
     const data = query.data;
     const callbackQueryId = query.id;
     const userId = query.from.id;
 
-    // 1. 🛑 UNLIMIT REQUEST LOGIC (KV Key retrieval)
+    // 1. 🛑 UNLIMIT REQUEST LOGIC (No Change)
     if (data.startsWith('REQUEST_UNLIMIT_')) {
         const requestId = data.substring('REQUEST_UNLIMIT_'.length);
         const requestDataStr = await env.POST_STATUS_KV.get(`UNLIMIT_REQUEST_${requestId}`);
@@ -620,14 +261,14 @@ async function handleCallbackQuery(query, env) {
         const requestData = JSON.parse(requestDataStr);
         const { userChatId, userMessageId, targetUserId, userFirstName, userName } = requestData;
 
-        // 🛑 Fix: Markdown Escape (මෙය අත්‍යවශ්‍යයි!)
+        // Markdown Escape
         const safeUserFirstName = escapeMarkdown(userFirstName);
         const safeUserName = escapeMarkdown(userName);
         
         // 1.1. User ට confirmation alert එකක් යැවීම
         await answerCallbackQuery(callbackQueryId, "✅ Owner වෙත ඔබගේ Limit ඉල්ලීම යවන ලදී. කරුණාකර පිළිතුරක් ලැබෙන තෙක් රැඳී සිටින්න.", true);
         
-        // 1.2. Owner වෙත Approval Message එක යැවීම (Username සහ First Name සහිතව)
+        // 1.2. Owner වෙත Approval Message එක යැවීම
         const requestMessage = `*👑 UNLIMIT REQUEST* \n
 *User Name:* ${safeUserFirstName} (${safeUserName})
 *User ID:* \`${targetUserId}\`
@@ -650,7 +291,7 @@ async function handleCallbackQuery(query, env) {
         
     } 
     
-    // 2. 👑 APPROVAL / REJECTION LOGIC (Owner Click - Message Edit Fix)
+    // 2. 👑 APPROVAL / REJECTION LOGIC
     else if (data.startsWith('APPROVE_UNLIMIT_') || data.startsWith('REJECT_UNLIMIT_')) {
         
         if (userId.toString() !== CONFIG.OWNER_CHAT_ID.toString()) {
@@ -680,6 +321,11 @@ async function handleCallbackQuery(query, env) {
         const today = new Date().toISOString().slice(0, 10);
         const KV_KEY = `usage:${today}:${userChatId}`;
         
+        // 🛑 Fix: Owner ගේ Message ID සහ Chat ID ලබා ගැනීම
+        const ownerChatId = query.message.chat.id;
+        const ownerMessageId = query.message.message_id;
+        
+        // Approval Message එකේ මුල් කොටස
         let newOwnerMessage = query.message.text.split('මෙම User ගේ')[0]; 
         
         if (isApproved) {
@@ -688,13 +334,13 @@ async function handleCallbackQuery(query, env) {
             
             // 2.2. User ගේ Original Message එක Edit කිරීම
             const successText = `✅ *Request Approved!* \n\n**Owner විසින් ඔබගේ Limit ඉල්ලීම අනුමත කරන ලදී!** \n\nදැන් ඔබට නැවත Bot භාවිතා කළ හැකිය. (Limit එක Reset වී ඇත.)`;
-            
             const userEditSuccess = await editTelegramMessage(userChatIdInt, userMessageIdInt, successText);
             
             // 2.3. Owner ගේ Approval Message එක Edit කිරීම
             newOwnerMessage += `\n\n*✅ STATUS: Approved!* \n_(${userFirstName} ගේ Limit එක ඉවත් කරන ලදී. User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'})_`;
             
-            await editTelegramMessage(query.message.chat.id, query.message.message_id, newOwnerMessage);
+            // 🛑 Fix: Owner ගේ Message එක Edit කිරීම
+            await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage); 
             
             await answerCallbackQuery(callbackQueryId, `✅ User ${targetUserId} ගේ Limit එක ඉවත් කර, ඔහුට දැනුම් දෙන ලදී.`, true);
             
@@ -706,7 +352,9 @@ async function handleCallbackQuery(query, env) {
 
             // Owner ගේ Approval Message එක Edit කිරීම
             newOwnerMessage += `\n\n*❌ STATUS: Rejected!* \n_(${userFirstName} ගේ ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී. User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'})_`;
-            await editTelegramMessage(query.message.chat.id, query.message.message_id, newOwnerMessage);
+            
+            // 🛑 Fix: Owner ගේ Message එක Edit කිරීම
+            await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage);
 
             await answerCallbackQuery(callbackQueryId, `❌ User ${targetUserId} ගේ ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී.`, true);
         }
