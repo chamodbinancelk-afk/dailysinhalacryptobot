@@ -141,7 +141,7 @@ async function sendTypingAction(chatId) {
     }
 }
 
-// Owner වෙත Message යැවීම සඳහා
+// Owner වෙත Message යැවීම සඳහා (Callback Query වෙතින් ලැබෙන)
 async function sendTelegramReplyToOwner(text, keyboard = null) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
@@ -175,8 +175,47 @@ async function sendTelegramReplyToOwner(text, keyboard = null) {
     }
 }
 
-// ... (sendTelegramMessage, sendTelegramReply functions - No Change)
+async function sendTelegramMessage(caption) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
+    try {
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: CONFIG.TELEGRAM_CHAT_ID, 
+                text: caption,
+                parse_mode: 'Markdown' 
+            }),
+        });
+        
+        return response.ok;
+    } catch (e) {
+        return false;
+    }
+}
 
+async function sendTelegramReply(chatId, text, messageId) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
+    try {
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId, 
+                text: text,
+                parse_mode: 'Markdown',
+                reply_to_message_id: messageId 
+            }),
+        });
+        
+        const data = await response.json();
+        return data.ok ? data.result.message_id : null; 
+    } catch (e) {
+        return null;
+    }
+}
+
+// 🛑 Owner Message Edit කිරීම සඳහා (Buttons ඉවත් කර, Text පමණක් Edit කරයි)
 async function editTelegramMessage(chatId, messageId, text) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
     try {
@@ -187,7 +226,9 @@ async function editTelegramMessage(chatId, messageId, text) {
                 chat_id: chatId, 
                 message_id: messageId, 
                 text: text,
-                parse_mode: 'Markdown'
+                parse_mode: 'Markdown',
+                // 🛑 Buttons ඉවත් කිරීම සඳහා reply_markup: {} හිස් ලෙස යවයි
+                reply_markup: {} 
             }),
         });
         return response.ok;
@@ -218,12 +259,30 @@ async function editTelegramMessageWithKeyboard(chatId, messageId, text, keyboard
     }
 }
 
-// ... (answerCallbackQuery, sendPhotoWithCaption, editPhotoCaption functions - No Change)
+async function answerCallbackQuery(callbackQueryId, text, showAlert) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/answerCallbackQuery`;
+    try {
+        await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                callback_query_id: callbackQueryId, 
+                text: text,
+                show_alert: showAlert 
+            }),
+        });
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// ... (sendPhotoWithCaption, editPhotoCaption functions - No Change)
 
 
 // --- 3. HELPER FUNCTIONS ---
 
-// 🛑 Fix: Markdown Escape Function (Markdown Error එක නිවැරදි කරයි)
+// Markdown Escape Function
 function escapeMarkdown(text) {
     if (!text) return "";
     return text.replace(/([_*`])/g, '\\$1');
@@ -265,10 +324,8 @@ async function handleCallbackQuery(query, env) {
         const safeUserFirstName = escapeMarkdown(userFirstName);
         const safeUserName = escapeMarkdown(userName);
         
-        // 1.1. User ට confirmation alert එකක් යැවීම
         await answerCallbackQuery(callbackQueryId, "✅ Owner වෙත ඔබගේ Limit ඉල්ලීම යවන ලදී. කරුණාකර පිළිතුරක් ලැබෙන තෙක් රැඳී සිටින්න.", true);
         
-        // 1.2. Owner වෙත Approval Message එක යැවීම
         const requestMessage = `*👑 UNLIMIT REQUEST* \n
 *User Name:* ${safeUserFirstName} (${safeUserName})
 *User ID:* \`${targetUserId}\`
@@ -325,7 +382,7 @@ async function handleCallbackQuery(query, env) {
         const ownerChatId = query.message.chat.id;
         const ownerMessageId = query.message.message_id;
         
-        // Approval Message එකේ මුල් කොටස
+        // Approval Message එකේ මුල් කොටස (මෙයින් Buttons ඉවත් වේ)
         let newOwnerMessage = query.message.text.split('මෙම User ගේ')[0]; 
         
         if (isApproved) {
@@ -339,7 +396,7 @@ async function handleCallbackQuery(query, env) {
             // 2.3. Owner ගේ Approval Message එක Edit කිරීම
             newOwnerMessage += `\n\n*✅ STATUS: Approved!* \n_(${userFirstName} ගේ Limit එක ඉවත් කරන ලදී. User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'})_`;
             
-            // 🛑 Fix: Owner ගේ Message එක Edit කිරීම
+            // 🛑 Fix: Owner ගේ Message එක Edit කිරීම (Buttons ඉවත් වේ)
             await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage); 
             
             await answerCallbackQuery(callbackQueryId, `✅ User ${targetUserId} ගේ Limit එක ඉවත් කර, ඔහුට දැනුම් දෙන ලදී.`, true);
@@ -353,7 +410,7 @@ async function handleCallbackQuery(query, env) {
             // Owner ගේ Approval Message එක Edit කිරීම
             newOwnerMessage += `\n\n*❌ STATUS: Rejected!* \n_(${userFirstName} ගේ ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී. User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'})_`;
             
-            // 🛑 Fix: Owner ගේ Message එක Edit කිරීම
+            // 🛑 Fix: Owner ගේ Message එක Edit කිරීම (Buttons ඉවත් වේ)
             await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage);
 
             await answerCallbackQuery(callbackQueryId, `❌ User ${targetUserId} ගේ ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී.`, true);
@@ -377,7 +434,7 @@ async function handleCallbackQuery(query, env) {
     }
 }
 
-// --- 7. WORKER EXPORT ---
+// --- 7. WORKER EXPORT (No Change) ---
 export default {
     async scheduled(event, env, ctx) {
         // ... (Scheduled Post code)
