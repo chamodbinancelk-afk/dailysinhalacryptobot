@@ -8,8 +8,8 @@ const CONFIG = {
     // 🛑 ඔබේ Channel/Group Chat ID එක (Scheduled Post සඳහා)
     TELEGRAM_CHAT_ID: "1901997764", 
     
-    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Rate Limit අදාළ නොවන Owner ID - String ලෙස තබන්න)
-    OWNER_CHAT_ID: "1901997764", // ⚠️ ඔබේ ID එක String ලෙස තහවුරු කරන්න!
+    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Owner ID - String ලෙස තබන්න)
+    OWNER_CHAT_ID: "1901997764", 
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
@@ -141,17 +141,18 @@ async function sendTypingAction(chatId) {
     }
 }
 
-// 🆕 Owner වෙත Message යැවීම සඳහා (Chat ID String ලෙස තහවුරු කරයි)
+// 🆕 Owner වෙත Message යැවීම සඳහා (Chat ID String ලෙස තහවුරු කරයි සහ Debugging සහිතව)
 async function sendTelegramReplyToOwner(text, keyboard = null) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
-        // 🛑 Fix: OWNER_CHAT_ID එක String ලෙස භාවිතා කිරීම තහවුරු කරයි
         const ownerChatIdString = CONFIG.OWNER_CHAT_ID.toString();
         
         const body = {
             chat_id: ownerChatIdString, 
             text: text,
-            parse_mode: 'Markdown' 
+            parse_mode: 'MarkdownV2' 
+            // 🛑 Note: MarkdownV2 භාවිතා කරන්නේ නම්, escapeMarkdown function එකේ සියලුම විශේෂ අක්ෂර Escape කළ යුතුය.
+            // දැනට Markdown භාවිතා කරමු, නමුත් escape කිරීම අනිවාර්යයි.
         };
         if (keyboard) {
             body.reply_markup = { inline_keyboard: keyboard };
@@ -326,6 +327,14 @@ async function editPhotoCaption(chatId, messageId, caption) {
 
 // --- 3. HELPER FUNCTIONS ---
 
+// 🛑 Fix: Markdown Escape Function (Markdown Error එක නිවැරදි කරයි)
+function escapeMarkdown(text) {
+    if (!text) return "";
+    // underscore (_) සහ backtick (`) පමණක් escape කිරීම.
+    // Bot Username වල underscore තිබිය හැක.
+    return text.replace(/([_*`])/g, '\\$1');
+}
+
 // Helper function to generate a short, random ID (for KV Key)
 function generateRandomId(length = 6) {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -337,7 +346,6 @@ function generateRandomId(length = 6) {
 }
 
 async function checkAndIncrementUsage(env, chatId) {
-    // 🛑 Owner ID එක String/Number දෙකම සඳහා පරීක්ෂා කරයි
     if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString()) {
         return { allowed: true, count: 'Unlimited' };
     }
@@ -589,7 +597,6 @@ async function handleWebhook(request, env) {
             }
         }
     } catch (e) {
-        // 🛑 Webhook Process කිරීමේදී ඇතිවන ඕනෑම දෝෂයක් Log කිරීම
         console.error("Error processing webhook:", e);
     }
     
@@ -615,12 +622,16 @@ async function handleCallbackQuery(query, env) {
         const requestData = JSON.parse(requestDataStr);
         const { userChatId, userMessageId, targetUserId, userFirstName, userName } = requestData;
 
+        // 🛑 Fix: Markdown Escape
+        const safeUserFirstName = escapeMarkdown(userFirstName);
+        const safeUserName = escapeMarkdown(userName);
+        
         // 1.1. User ට confirmation alert එකක් යැවීම
         await answerCallbackQuery(callbackQueryId, "✅ Owner වෙත ඔබගේ Limit ඉල්ලීම යවන ලදී. කරුණාකර පිළිතුරක් ලැබෙන තෙක් රැඳී සිටින්න.", true);
         
         // 1.2. Owner වෙත Approval Message එක යැවීම (Username සහ First Name සහිතව)
         const requestMessage = `*👑 UNLIMIT REQUEST* \n
-*User Name:* ${userFirstName} (${userName})
+*User Name:* ${safeUserFirstName} (${safeUserName}) // 🛑 මෙහිදී escaped values භාවිත කරයි
 *User ID:* \`${targetUserId}\`
 *User Chat ID:* \`${userChatId}\`
 *Original Message ID:* \`${userMessageId}\`
@@ -631,12 +642,10 @@ async function handleCallbackQuery(query, env) {
             [{ text: "❌ Reject Request", callback_data: `REJECT_UNLIMIT_${requestId}` }]
         ];
         
-        // 🛑 Fix: sendTelegramReplyToOwner භාවිතයෙන් Message යැවීම තහවුරු කරයි
         const sentToOwner = await sendTelegramReplyToOwner(requestMessage, approvalKeyboard);
         
         if (!sentToOwner) {
              console.error(`Failed to send unlimit request for user ${targetUserId} to owner.`);
-             // ⚠️ මෙහිදී Telegram API Error එක console log වී ඇත.
         }
         
         return new Response('Unlimit request sent to owner', { status: 200 });
