@@ -1,5 +1,5 @@
 // =================================================================
-// === src/news-logic.js (FINAL EXPORTABLE VERSION) ===
+// === src/news-logic.js (FINAL EXPORTABLE VERSION - FIXED) ===
 // =================================================================
 
 // --- ES MODULE IMPORTS (Required for Cloudflare Workers) ---
@@ -44,8 +44,6 @@ async function sendRawTelegramMessage(chatId, message, CONFIG, imgUrl = null, re
     }
     const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 
-    // ... (rest of the sendRawTelegramMessage function body - no changes needed, it uses the scoped TELEGRAM_API_URL) ...
-    // Note: The function body is large, assuming no internal changes needed other than the Token source.
     let currentImgUrl = imgUrl;
     let apiMethod = currentImgUrl ? 'sendPhoto' : 'sendMessage';
     let maxAttempts = 3;
@@ -109,7 +107,6 @@ async function sendRawTelegramMessage(chatId, message, CONFIG, imgUrl = null, re
 
 
 async function readKV(env, key) {
-    // ... (unchanged) ...
     try {
         if (!env.NEWS_STATE) {
             console.error("KV Binding 'NEWS_STATE' is missing in ENV.");
@@ -127,7 +124,6 @@ async function readKV(env, key) {
 }
 
 async function writeKV(env, key, value) {
-    // ... (unchanged) ...
     try {
         if (!env.NEWS_STATE) {
             console.error("KV Binding 'NEWS_STATE' is missing in ENV. Write failed.");
@@ -140,7 +136,6 @@ async function writeKV(env, key, value) {
 }
 
 async function translateText(text) {
-    // ... (unchanged) ...
     const translationApiUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=si&dt=t&q=${encodeURIComponent(text)}`;
     try {
         const response = await fetch(translationApiUrl);
@@ -199,11 +194,9 @@ async function checkChannelMembership(userId, CONFIG) { // ⚠️ CONFIG Paramet
  */
 async function getAISentimentSummary(headline, description, CONFIG) { // ⚠️ CONFIG Parameter එක එකතු කර ඇත
     const GEMINI_API_KEY = CONFIG.GEMINI_API_KEY; // ⚠️ CONFIG වෙත යොමු කර ඇත
-    const TELEGRAM_TOKEN = CONFIG.TELEGRAM_BOT_TOKEN; // ⚠️ CONFIG වෙත යොමු කර ඇත
-
+    
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
 
-    // ... (rest of the getAISentimentSummary function body - uses GEMINI_API_KEY and logic is sound) ...
     // 1. Initial Key Check
     if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
         console.error("Gemini AI: API Key is missing or placeholder. Skipping analysis.");
@@ -295,7 +288,6 @@ Sinhala Summary: [Sinhala translation of the analysis (very brief, max 2 sentenc
 // =================================================================
 
 async function getLatestForexNews() {
-    // ... (unchanged) ...
     const resp = await fetch(FF_NEWS_URL, { headers: HEADERS });
     if (!resp.ok) throw new Error(`[SCRAPING ERROR] HTTP error! status: ${resp.status} on news page.`);
 
@@ -333,7 +325,8 @@ async function getLatestForexNews() {
  * @param {object} env - Cloudflare Environment
  * @param {object} CONFIG - The unified configuration object from index.js
  */
-export async function handleNewsScheduled(env, CONFIG) { // ⚠️ EXPORT කර ඇත, CONFIG Parameter එක එකතු කර ඇත
+// 🛑 FIX: Named Export (handleNewsScheduled)
+export async function handleNewsScheduled(env, CONFIG) { 
     const CHAT_ID = CONFIG.TELEGRAM_CHAT_ID; // ⚠️ CONFIG වෙත යොමු කර ඇත
     try {
         const news = await getLatestForexNews();
@@ -396,7 +389,8 @@ export async function handleNewsScheduled(env, CONFIG) { // ⚠️ EXPORT කර
  * @param {object} CONFIG - The unified configuration object from index.js
  * @returns {Response | null} - Returns null if the message is not handled by News Logic.
  */
-export async function handleNewsWebhook(update, env, CONFIG) { // ⚠️ EXPORT කර ඇත, CONFIG Parameter එක එකතු කර ඇත
+// 🛑 FIX: Named Export (handleNewsWebhook)
+export async function handleNewsWebhook(update, env, CONFIG) { 
     const CHAT_ID = CONFIG.TELEGRAM_CHAT_ID; // ⚠️ CONFIG වෙත යොමු කර ඇත
     const OWNER_ID = CONFIG.OWNER_CHAT_ID;
 
@@ -468,7 +462,6 @@ export async function handleNewsWebhook(update, env, CONFIG) { // ⚠️ EXPORT 
 
         default:
             // ⚠️ Trading Logic මඟින් Command handle කර නැතිනම්, මෙහිදීත් handle නොකරන්න
-            // Index.js විසින්ම Trading Logic එකට හෝ News Logic එකට අයත් නොවන Messages 'OK' ලෙස return කරනු ඇත.
             return null;
     }
 }
