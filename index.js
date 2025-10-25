@@ -150,9 +150,7 @@ async function sendTelegramReplyToOwner(text, keyboard = null) {
         const body = {
             chat_id: ownerChatIdString, 
             text: text,
-            parse_mode: 'MarkdownV2' 
-            // 🛑 Note: MarkdownV2 භාවිතා කරන්නේ නම්, escapeMarkdown function එකේ සියලුම විශේෂ අක්ෂර Escape කළ යුතුය.
-            // දැනට Markdown භාවිතා කරමු, නමුත් escape කිරීම අනිවාර්යයි.
+            parse_mode: 'Markdown' 
         };
         if (keyboard) {
             body.reply_markup = { inline_keyboard: keyboard };
@@ -330,8 +328,8 @@ async function editPhotoCaption(chatId, messageId, caption) {
 // 🛑 Fix: Markdown Escape Function (Markdown Error එක නිවැරදි කරයි)
 function escapeMarkdown(text) {
     if (!text) return "";
-    // underscore (_) සහ backtick (`) පමණක් escape කිරීම.
-    // Bot Username වල underscore තිබිය හැක.
+    // Telegram's default Markdown parser interprets underscores (_) as italics. 
+    // We must escape underscores and backticks (`) in usernames to prevent 'Bad Request: can't parse entities' errors.
     return text.replace(/([_*`])/g, '\\$1');
 }
 
@@ -622,7 +620,7 @@ async function handleCallbackQuery(query, env) {
         const requestData = JSON.parse(requestDataStr);
         const { userChatId, userMessageId, targetUserId, userFirstName, userName } = requestData;
 
-        // 🛑 Fix: Markdown Escape
+        // 🛑 Fix: Markdown Escape (මෙය අත්‍යවශ්‍යයි!)
         const safeUserFirstName = escapeMarkdown(userFirstName);
         const safeUserName = escapeMarkdown(userName);
         
@@ -631,7 +629,7 @@ async function handleCallbackQuery(query, env) {
         
         // 1.2. Owner වෙත Approval Message එක යැවීම (Username සහ First Name සහිතව)
         const requestMessage = `*👑 UNLIMIT REQUEST* \n
-*User Name:* ${safeUserFirstName} (${safeUserName}) // 🛑 මෙහිදී escaped values භාවිත කරයි
+*User Name:* ${safeUserFirstName} (${safeUserName})
 *User ID:* \`${targetUserId}\`
 *User Chat ID:* \`${userChatId}\`
 *Original Message ID:* \`${userMessageId}\`
