@@ -5,23 +5,23 @@ const CONFIG = {
     // 🛑 ඔබේ Bot Token එක
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
     
-    // 🛑 ඔබේ Channel/Group Chat ID එක (Scheduled Post සඳහා)
-    TELEGRAM_CHAT_ID: "1901997764", // Post එක යැවිය යුතු Channel ID එක
+    // 🛑 ඔබේ Channel/Group Chat ID එක (Lifetime Post එක යැවිය යුතු ස්ථානය)
+    TELEGRAM_CHAT_ID: "-1002947156921", // 🚨 FIX: ඔබ ලබා දුන් Channel ID එක
     
-    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Owner ID - String ලෙස තබන්න)
-    OWNER_CHAT_ID: "1901997764", 
+    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Owner ගේ Private ID එක - String ලෙස තබන්න)
+    OWNER_CHAT_ID: "1901997764", // ඔබගේ සැබෑ Owner ID එක මෙය නොවේ නම් වෙනස් කරන්න
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
     
-    // Telegram API Endpoint Base URL එක
+    // Telegram API Endpoint Base URL එක (Token එකෙන් සෑදී ඇත)
     TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`,
     
     // දිනකට උපරිම අවසර ලත් භාවිතය
     DAILY_LIMIT: 5
 };
 
-// --- 1. CORE AI FUNCTIONS (No Change) ---
+// --- 1. CORE AI FUNCTIONS ---
 
 async function generateScheduledContent(coveredTopics) { 
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
@@ -215,7 +215,7 @@ async function sendTelegramReply(chatId, text, messageId) {
     }
 }
 
-// 🛑 Buttons ඉවත් නොකර, Text පමණක් Edit කරන function එක
+// Buttons ඉවත් නොකර, Text පමණක් Edit කරන function එක
 async function editTelegramMessage(chatId, messageId, text) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
     try {
@@ -275,7 +275,7 @@ async function answerCallbackQuery(callbackQueryId, text, showAlert) {
     }
 }
 
-// 🛑 NEW: Buttons පමණක් ඉවත් කිරීම සඳහා නව function එක
+// Buttons පමණක් ඉවත් කිරීම සඳහා නව function එක
 async function removeInlineKeyboard(chatId, messageId) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageReplyMarkup`;
     try {
@@ -341,7 +341,7 @@ async function editPhotoCaption(chatId, messageId, caption) {
 }
 
 
-// --- 3. HELPER FUNCTIONS (No Change) ---
+// --- 3. HELPER FUNCTIONS ---
 
 // Markdown Escape Function
 function escapeMarkdown(text) {
@@ -440,13 +440,13 @@ async function updateAndEditUserCount(env, userId) {
 }
 
 
-// --- 4. COMMANDS FOR OWNER (Permanent Count Post Fix) ---
+// --- 4. COMMANDS FOR OWNER ---
 
 async function sendInitialCountPost(env, ownerChatId) {
     const PHOTO_URL = "https://envs.sh/7R4.jpg"; // Placeholder URL
     const COUNT_POST_ID_KEY = 'COUNT_POST_ID';
     
-    // 🛑 Channel ID එක ලබා ගැනීම
+    // Channel ID එක ලබා ගැනීම (CONFIG එකෙන්)
     const targetChatId = CONFIG.TELEGRAM_CHAT_ID;
 
     const existingPost = await env.POST_STATUS_KV.get(COUNT_POST_ID_KEY);
@@ -478,13 +478,13 @@ async function sendInitialCountPost(env, ownerChatId) {
         [{ text: "Click for Private Info", callback_data: 'SHOW_PRIVATE_INFO' }]
     ];
 
-    // 🛑 Fix: Post එක Channel ID එකට යැවීම
+    // FIX: Post එක Channel ID එකට යැවීම
     const result = await sendPhotoWithCaption(targetChatId, PHOTO_URL, initialCaption, keyboard);
     
     if (result.success) {
         const postIdentifier = `${targetChatId}:${result.messageId}`;
         await env.POST_STATUS_KV.put(COUNT_POST_ID_KEY, postIdentifier);
-        return { success: true, message: `Permanent Count Post එක සාර්ථකව ${targetChatId} Chat ID එකට යවා ගබඩා කරන ලදී. Post ID: ${postIdentifier}` };
+        return { success: true, message: `Permanent Count Post එක සාර්ථකව \`${targetChatId}\` Chat ID එකට යවා ගබඩා කරන ලදී. Post ID: ${postIdentifier}` };
     } else {
         return { success: false, message: `Post යැවීම අසාර්ථක විය: ${JSON.stringify(result.error)}` };
     }
@@ -514,7 +514,7 @@ async function handleWebhook(request, env) {
 
             // --- NEW: Owner Command to Send Initial Count Post ---
             if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/send_count_post')) {
-                // 🛑 Fix: Owner Chat ID එක යැවීම
+                // Fix: Owner Chat ID එක යැවීම
                 const result = await sendInitialCountPost(env, chatId); 
                 await sendTelegramReply(chatId, result.message, messageId);
                 return new Response('Count post command processed', { status: 200 });
@@ -623,7 +623,7 @@ async function handleWebhook(request, env) {
 }
 
 
-// --- 6. Callback Query Handler (Owner Message Edit Fix) ---
+// --- 6. Callback Query Handler (Owner Message Edit Logic) ---
 async function handleCallbackQuery(query, env) {
     const data = query.data;
     const callbackQueryId = query.id;
@@ -706,6 +706,11 @@ async function handleCallbackQuery(query, env) {
         // Approval Message එකේ මුල් කොටස
         let newOwnerMessage = query.message.text.split('මෙම User ගේ')[0]; 
         
+        // Sri Lanka Time ලබා ගැනීම
+        const timeZone = 'Asia/Colombo';
+        const currentTime = new Date().toLocaleTimeString('en-US', { timeZone: timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        
+        
         if (isApproved) {
             // 2.1. KV එකෙන් Limit එක ඉවත් කිරීම
             await env.POST_STATUS_KV.delete(KV_KEY);
@@ -715,12 +720,22 @@ async function handleCallbackQuery(query, env) {
             const userEditSuccess = await editTelegramMessage(userChatIdInt, userMessageIdInt, successText);
             
             // 2.3. Owner ගේ Approval Message එක Edit කිරීම
-            // 🛑 1. Buttons ඉවත් කිරීම
+            
+            // 1. Buttons ඉවත් කිරීම
             await removeInlineKeyboard(ownerChatId, ownerMessageId); 
             
-            newOwnerMessage += `\n\n*✅ STATUS: Approved!* \n_(${userFirstName} ගේ Limit එක ඉවත් කරන ලදී. User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'})_`;
+            // New Edited Message Text (ඔබ ඉල්ලූ format එක)
+            const approvalDetails = `\n
+*✅ STATUS: Approved by Owner!*
+\n*User ID:* \`${targetUserId}\`
+*User Name:* ${userFirstName}
+*Message ID:* \`${userMessageId}\`
+*Time:* ${currentTime} (SL Time)
+\n_User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'}_`;
+
+            newOwnerMessage += approvalDetails;
             
-            // 🛑 2. Text එක Edit කිරීම
+            // 2. Text එක Edit කිරීම
             await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage); 
             
             await answerCallbackQuery(callbackQueryId, `✅ User ${targetUserId} ගේ Limit එක ඉවත් කර, ඔහුට දැනුම් දෙන ලදී.`, true);
@@ -732,12 +747,21 @@ async function handleCallbackQuery(query, env) {
             const userEditSuccess = await editTelegramMessage(userChatIdInt, userMessageIdInt, rejectText);
 
             // Owner ගේ Approval Message එක Edit කිරීම
-            // 🛑 1. Buttons ඉවත් කිරීම
+            
+            // 1. Buttons ඉවත් කිරීම
             await removeInlineKeyboard(ownerChatId, ownerMessageId);
             
-            newOwnerMessage += `\n\n*❌ STATUS: Rejected!* \n_(${userFirstName} ගේ ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී. User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'})_`;
+            const rejectionDetails = `\n
+*❌ STATUS: Rejected by Owner!*
+\n*User ID:* \`${targetUserId}\`
+*User Name:* ${userFirstName}
+*Message ID:* \`${userMessageId}\`
+*Time:* ${currentTime} (SL Time)
+\n_User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'}_`;
+
+            newOwnerMessage += rejectionDetails;
             
-            // 🛑 2. Text එක Edit කිරීම
+            // 2. Text එක Edit කිරීම
             await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage);
 
             await answerCallbackQuery(callbackQueryId, `❌ User ${targetUserId} ගේ ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී.`, true);
@@ -761,17 +785,17 @@ async function handleCallbackQuery(query, env) {
     }
 }
 
-// --- 7. WORKER EXPORT (No Change) ---
+// --- 7. WORKER EXPORT ---
 export default {
     async scheduled(event, env, ctx) {
-        // ... (Scheduled Post code)
+        // ... (Scheduled Post code - මෙම කොටස ඔබගේ අවශ්‍යතාව පරිදි පුරවන්න)
     },
 
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         
         if (url.pathname === '/trigger-manual') {
-            // ... (Manual Daily Post trigger code)
+            // ... (Manual Daily Post trigger code - මෙම කොටස ඔබගේ අවශ්‍යතාව පරිදි පුරවන්න)
         }
 
         if (request.method === 'POST') {
