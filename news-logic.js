@@ -8,7 +8,7 @@ import moment from 'moment-timezone';
 
 const HARDCODED_CONFIG = {
     // ⚠️ ඔබේ සත්‍ය දත්ත මගින් ප්‍රතිස්ථාපනය කරන්න.
-    TELEGRAM_TOKEN: '8299929776:AAEFqh0J0kVqzioFF2ft5okOtQqO_8evviY',        
+    TELEGRAM_TOKEN: '5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q',        
     CHAT_ID: '-1003177936060',                  
     GEMINI_API_KEY: 'AIzaSyDDmFq7B3gTazrcrI_J4J7VhB9YdFyTCaU',            
 };
