@@ -12,7 +12,7 @@ const CONFIG = {
     OWNER_CHAT_ID: "1901997764", // ඔබේ Owner ID එක මෙය නොවේ නම් වෙනස් කරන්න
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
-    GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
+    GEMINI_API_KEY: "AIzaSyDXf3cIysV1nszX4vuNrBrhi2WCxV44pwA", 
     
     // Telegram API Endpoint Base URL එක (Token එකෙන් සෑදී ඇත)
     TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`,
@@ -26,11 +26,9 @@ const CONFIG = {
 async function generateScheduledContent(env) { 
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
-    // 1. KV එකෙන් කලින් Post කළ Topics ලැයිස්තුව ලබා ගැනීම.
     const coveredTopicsString = await env.POST_STATUS_KV.get('COVERED_TOPICS') || "[]";
     let coveredTopics = JSON.parse(coveredTopicsString);
     
-    // 2. දැනටමත් Post කර ඇති topics.
     const excludedTopicsString = coveredTopics.join(', ');
     
     const systemPrompt = `
@@ -62,16 +60,12 @@ async function generateScheduledContent(env) {
         const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
         
         if (content) {
-            // 3. Topic එක අලුතින් Post කළ Topics ලැයිස්තුවට එකතු කිරීම
-            const newTopicMatch = content.match(/\*([^*]+)\*/); // පළමු බෝල්ඩ් කර ඇති මාතෘකාව ලබා ගනී
+            const newTopicMatch = content.match(/\*([^*]+)\*/); 
             const newTopic = newTopicMatch ? newTopicMatch[1].trim() : "Untitled Post";
             
             coveredTopics.push(newTopic);
             
-            // KV එක යාවත්කාලීන කරන්න (Topic ලැයිස්තුව)
             await env.POST_STATUS_KV.put('COVERED_TOPICS', JSON.stringify(coveredTopics));
-            
-            // අද Post කළ මාතෘකාව ද ගබඩා කරන්න
             await env.POST_STATUS_KV.put('LAST_TRADING_TOPIC', newTopic);
             
             return content;
@@ -168,7 +162,6 @@ async function sendTypingAction(chatId) {
     }
 }
 
-// Owner වෙත Message යැවීම සඳහා (Callback Query වෙතින් ලැබෙන)
 async function sendTelegramReplyToOwner(text, keyboard = null) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
@@ -242,7 +235,6 @@ async function sendTelegramReply(chatId, text, messageId) {
     }
 }
 
-// Buttons ඉවත් නොකර, Text පමණක් Edit කරන function එක
 async function editTelegramMessage(chatId, messageId, text) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
     try {
@@ -302,7 +294,6 @@ async function answerCallbackQuery(callbackQueryId, text, showAlert) {
     }
 }
 
-// Buttons පමණක් ඉවත් කිරීම සඳහා නව function එක
 async function removeInlineKeyboard(chatId, messageId) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageReplyMarkup`;
     try {
@@ -312,7 +303,7 @@ async function removeInlineKeyboard(chatId, messageId) {
             body: JSON.stringify({
                 chat_id: chatId, 
                 message_id: messageId, 
-                reply_markup: {} // හිස් reply_markup යවයි
+                reply_markup: {} 
             }),
         });
         return response.ok;
@@ -370,13 +361,12 @@ async function editPhotoCaption(chatId, messageId, caption) {
 
 // --- 3. HELPER FUNCTIONS ---
 
-// Markdown Escape Function
 function escapeMarkdown(text) {
     if (!text) return "";
-    return text.replace(/([_*`])/g, '\\$1');
+    // FIX: Telegram Markdown V1 හි විශේෂ අක්ෂර වන _*` වලට අමතරව [ ද Escape කිරීම.
+    return text.replace(/([_*`\[])/g, '\\$1');
 }
 
-// Helper function to generate a short, random ID (for KV Key)
 function generateRandomId(length = 6) {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let result = '';
@@ -470,10 +460,9 @@ async function updateAndEditUserCount(env, userId) {
 // --- 4. COMMANDS FOR OWNER ---
 
 async function sendInitialCountPost(env, ownerChatId) {
-    const PHOTO_URL = "https://envs.sh/7R4.jpg"; // Placeholder URL
+    const PHOTO_URL = "https://envs.sh/7R4.jpg"; 
     const COUNT_POST_ID_KEY = 'COUNT_POST_ID';
     
-    // Channel ID එක ලබා ගැනීම (CONFIG එකෙන්)
     const targetChatId = CONFIG.TELEGRAM_CHAT_ID;
 
     const existingPost = await env.POST_STATUS_KV.get(COUNT_POST_ID_KEY);
@@ -505,7 +494,6 @@ async function sendInitialCountPost(env, ownerChatId) {
         [{ text: "Click for Private Info", callback_data: 'SHOW_PRIVATE_INFO' }]
     ];
 
-    // FIX: Post එක Channel ID එකට යැවීම
     const result = await sendPhotoWithCaption(targetChatId, PHOTO_URL, initialCaption, keyboard);
     
     if (result.success) {
@@ -518,144 +506,12 @@ async function sendInitialCountPost(env, ownerChatId) {
 }
 
 
-// --- 5. WORKER ENTRY POINT (Handles Webhook) ---
-
-async function handleWebhook(request, env) {
-    try {
-        const update = await request.json();
-        
-        if (update && update.callback_query) {
-            return handleCallbackQuery(update.callback_query, env);
-        }
-
-        if (update && update.message && update.message.text) {
-            const message = update.message;
-            const chatId = message.chat.id;
-            const messageId = message.message_id;
-            const text = message.text.trim();
-            const userId = message.from.id; 
-            
-            const userFirstName = message.from.first_name || "N/A";
-            const userName = message.from.username ? `@${message.from.username}` : "N/A";
-
-
-            // --- NEW: Owner Command to Send Initial Count Post ---
-            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/send_count_post')) {
-                // Fix: Owner Chat ID එක යැවීම
-                const result = await sendInitialCountPost(env, chatId); 
-                await sendTelegramReply(chatId, result.message, messageId);
-                return new Response('Count post command processed', { status: 200 });
-            }
-
-
-            // --- ADMIN COMMANDS (Owner Only) ---
-            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/unlimit')) {
-                const parts = text.split(' ');
-                if (parts.length === 2) {
-                    const targetChatId = parts[1].trim();
-                    const today = new Date().toISOString().slice(0, 10);
-                    const KV_KEY = `usage:${today}:${targetChatId}`;
-                    
-                    await env.POST_STATUS_KV.delete(KV_KEY);
-                    
-                    const successMessage = `✅ *User Limit Removed!* \n\nUser ID: \`${targetChatId}\` ගේ දෛනික සීමාව (limit) අද දින සඳහා සාර්ථකව ඉවත් කරන ලදී.`;
-                    await sendTelegramReply(chatId, successMessage, messageId);
-                    return new Response('Admin command processed', { status: 200 });
-                } else {
-                    await sendTelegramReply(chatId, "⚠️ *Usage:* /unlimit [User_Chat_ID_Eka]", messageId);
-                    return new Response('Admin command error', { status: 200 });
-                }
-            }
-
-
-            // --- REGULAR COMMANDS (/start, /help) ---
-            if (text.startsWith('/')) {
-                const command = text.split(' ')[0].toLowerCase();
-                
-                if (command === '/start') {
-                    await updateAndEditUserCount(env, userId);
-                    
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
-                    await sendTelegramReply(chatId, welcomeMessage, messageId);
-
-                } else if (command === '/help') {
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
-                    await sendTelegramReply(chatId, welcomeMessage, messageId);
-                }
-                return new Response('Command processed', { status: 200 });
-            }
-
-            // --- TRADING QUESTION LOGIC (FIXED: Now handles short terms too!) ---
-            
-            // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව 
-            const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
-            const isTradingTopic = await validateTopic(text); 
-            
-            if (isTradingTopic) {
-                
-                // 2. 🛑 Rate Limit Check
-                const usageResult = await checkAndIncrementUsage(env, chatId);
-                
-                if (!usageResult.allowed) {
-                    // Rate Limit ඉක්මවා ඇත්නම්
-                    const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
-                    
-                    // KV එකේ User Request තොරතුරු ගබඩා කිරීම
-                    const requestId = `REQ_${generateRandomId()}`;
-                    const requestData = {
-                        userChatId: chatId,
-                        userMessageId: validationMessageId, 
-                        targetUserId: userId,
-                        userFirstName: userFirstName,
-                        userName: userName
-                    };
-                    // Request එක පැය 24ක් සඳහා ගබඩා කිරීම
-                    await env.POST_STATUS_KV.put(`UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
-
-                    // Button එකට යවන්නේ KV Key එක පමණයි
-                    const keyboard = [
-                        [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
-                    ];
-                    
-                    await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
-                    return new Response('Rate limited with inline request button', { status: 200 });
-                }
-                
-                // 3. 🌐 Searching Status 
-                await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
-                
-                // 4. 🧠 Generation Status 
-                await sendTypingAction(chatId); 
-                await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
-                
-                // 5. 🔗 Final Content Generation
-                const replyText = await generateReplyContent(text);
-                
-                // 6. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
-                await editTelegramMessage(chatId, validationMessageId, replyText);
-                
-            } else {
-                // Not a Trading Question - Guardrail Message 
-                const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
-                await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
-            }
-            
-        }
-    } catch (e) {
-        console.error("Error processing webhook:", e);
-    }
-    
-    return new Response('OK', { status: 200 });
-}
-
-
 // --- 6. Callback Query Handler (Owner Message Edit Logic) ---
 async function handleCallbackQuery(query, env) {
     const data = query.data;
     const callbackQueryId = query.id;
     const userId = query.from.id;
 
-    // 1. 🛑 UNLIMIT REQUEST LOGIC 
     if (data.startsWith('REQUEST_UNLIMIT_')) {
         const requestId = data.substring('REQUEST_UNLIMIT_'.length);
         const requestDataStr = await env.POST_STATUS_KV.get(`UNLIMIT_REQUEST_${requestId}`);
@@ -696,7 +552,6 @@ async function handleCallbackQuery(query, env) {
         
     } 
     
-    // 2. 👑 APPROVAL / REJECTION LOGIC
     else if (data.startsWith('APPROVE_UNLIMIT_') || data.startsWith('REJECT_UNLIMIT_')) {
         
         if (userId.toString() !== CONFIG.OWNER_CHAT_ID.toString()) {
@@ -717,7 +572,6 @@ async function handleCallbackQuery(query, env) {
         const requestData = JSON.parse(requestDataStr);
         const { userChatId, userMessageId, targetUserId, userFirstName } = requestData;
         
-        // KV එකෙන් Key එක මැකීම
         await env.POST_STATUS_KV.delete(`UNLIMIT_REQUEST_${requestId}`);
 
         const userChatIdInt = parseInt(userChatId);
@@ -729,28 +583,20 @@ async function handleCallbackQuery(query, env) {
         const ownerChatId = query.message.chat.id;
         const ownerMessageId = query.message.message_id;
         
-        // Approval Message එකේ මුල් කොටස
         let newOwnerMessage = query.message.text.split('මෙම User ගේ')[0]; 
         
-        // Sri Lanka Time ලබා ගැනීම
         const timeZone = 'Asia/Colombo';
         const currentTime = new Date().toLocaleTimeString('en-US', { timeZone: timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
         
         
         if (isApproved) {
-            // 2.1. KV එකෙන් Limit එක ඉවත් කිරීම
             await env.POST_STATUS_KV.delete(KV_KEY);
             
-            // 2.2. User ගේ Original Message එක Edit කිරීම
             const successText = `✅ *Request Approved!* \n\n**Owner විසින් ඔබගේ Limit ඉල්ලීම අනුමත කරන ලදී!** \n\nදැන් ඔබට නැවත Bot භාවිතා කළ හැකිය. (Limit එක Reset වී ඇත.)`;
             const userEditSuccess = await editTelegramMessage(userChatIdInt, userMessageIdInt, successText);
             
-            // 2.3. Owner ගේ Approval Message එක Edit කිරීම
-            
-            // 1. Buttons ඉවත් කිරීම
             await removeInlineKeyboard(ownerChatId, ownerMessageId); 
             
-            // New Edited Message Text (ඔබ ඉල්ලූ format එක)
             const approvalDetails = `\n
 *✅ STATUS: Approved by Owner!*
 \n*User ID:* \`${targetUserId}\`
@@ -761,20 +607,14 @@ async function handleCallbackQuery(query, env) {
 
             newOwnerMessage += approvalDetails;
             
-            // 2. Text එක Edit කිරීම
             await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage); 
             
             await answerCallbackQuery(callbackQueryId, `✅ User ${targetUserId} ගේ Limit එක ඉවත් කර, ඔහුට දැනුම් දෙන ලදී.`, true);
             
-        } else { // Rejected
-            
-            // User ගේ Original Message එක Edit කිරීම
+        } else { 
             const rejectText = `❌ *Request Rejected* \n\n**Owner විසින් ඔබගේ Limit ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී.** \n\nකරුණාකර හෙට දින නැවත උත්සාහ කරන්න.`;
             const userEditSuccess = await editTelegramMessage(userChatIdInt, userMessageIdInt, rejectText);
 
-            // Owner ගේ Approval Message එක Edit කිරීම
-            
-            // 1. Buttons ඉවත් කිරීම
             await removeInlineKeyboard(ownerChatId, ownerMessageId);
             
             const rejectionDetails = `\n
@@ -787,7 +627,6 @@ async function handleCallbackQuery(query, env) {
 
             newOwnerMessage += rejectionDetails;
             
-            // 2. Text එක Edit කිරීම
             await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage);
 
             await answerCallbackQuery(callbackQueryId, `❌ User ${targetUserId} ගේ ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී.`, true);
@@ -796,7 +635,6 @@ async function handleCallbackQuery(query, env) {
         return new Response('Approval logic processed', { status: 200 });
     }
     
-    // 3. (පැරණි Logic - Private Info Button)
     else if (data === 'SHOW_PRIVATE_INFO') {
         const privateMessage = `*✅ ඔබට පමණක් පෞද්ගලික තොරතුරු (Personalized Info)*\n\nමෙම තොරතුරු *ඔබට පමණක්* දර්ශනය වන ලෙස **Alert Box** එකක් මඟින් පෙන්වනු ලැබේ.\n\n*User ID:* \`${userId}\``;
         await answerCallbackQuery(callbackQueryId, privateMessage, true);
@@ -804,59 +642,167 @@ async function handleCallbackQuery(query, env) {
 
     } 
     
-    // 4. Unknown/Done
     else {
         await answerCallbackQuery(callbackQueryId, "Processing...", false);
         return new Response('Callback query handled', { status: 200 });
     }
 }
 
-// --- 7. WORKER EXPORT (FINAL CODE) ---
-export default {
-    async scheduled(event, env, ctx) {
-        // 1. Daily Content Generation (KV update logic inside)
-        const postContent = await generateScheduledContent(env); 
+
+// --- 5. WORKER ENTRY POINT (Handles Webhook) ---
+// 🛑 FIX: handleTradingWebhook ලෙස නම වෙනස් කරන ලදී.
+async function handleTradingWebhook(request, env) { 
+    try {
+        const update = await request.json();
         
-        if (postContent) {
-            // 2. Channel එකට Post එක යැවීම (CONFIG.TELEGRAM_CHAT_ID ට)
-            const success = await sendTelegramMessage(postContent); 
+        if (update && update.callback_query) {
+            return handleCallbackQuery(update.callback_query, env);
+        }
+
+        if (update && update.message && update.message.text) {
+            const message = update.message;
+            const chatId = message.chat.id;
+            const messageId = message.message_id;
+            const text = message.text.trim();
+            const userId = message.from.id; 
             
-            // 3. KV එකේ Post Status එක ගබඩා කිරීම
-            const today = new Date().toISOString().slice(0, 10);
-            if (success) {
-                await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "POSTED");
+            const userFirstName = message.from.first_name || "N/A";
+            const userName = message.from.username ? `@${message.from.username}` : "N/A";
+
+
+            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/send_count_post')) {
+                const result = await sendInitialCountPost(env, chatId); 
+                await sendTelegramReply(chatId, result.message, messageId);
+                return new Response('Count post command processed', { status: 200 });
+            }
+
+            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/unlimit')) {
+                const parts = text.split(' ');
+                if (parts.length === 2) {
+                    const targetChatId = parts[1].trim();
+                    const today = new Date().toISOString().slice(0, 10);
+                    const KV_KEY = `usage:${today}:${targetChatId}`;
+                    
+                    await env.POST_STATUS_KV.delete(KV_KEY);
+                    
+                    const successMessage = `✅ *User Limit Removed!* \n\nUser ID: \`${targetChatId}\` ගේ දෛනික සීමාව (limit) අද දින සඳහා සාර්ථකව ඉවත් කරන ලදී.`;
+                    await sendTelegramReply(chatId, successMessage, messageId);
+                    return new Response('Admin command processed', { status: 200 });
+                } else {
+                    await sendTelegramReply(chatId, "⚠️ *Usage:* /unlimit [User_Chat_ID_Eka]", messageId);
+                    return new Response('Admin command error', { status: 200 });
+                }
+            }
+
+
+            if (text.startsWith('/')) {
+                const command = text.split(' ')[0].toLowerCase();
+                
+                if (command === '/start') {
+                    await updateAndEditUserCount(env, userId);
+                    
+                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
+                    await sendTelegramReply(chatId, welcomeMessage, messageId);
+
+                } else if (command === '/help') {
+                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
+                    await sendTelegramReply(chatId, welcomeMessage, messageId);
+                }
+                return new Response('Command processed', { status: 200 });
+            }
+            
+            // 1. 🚦 Trading Validation
+            const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
+            const isTradingTopic = await validateTopic(text); 
+            
+            if (isTradingTopic) {
+                
+                // 2. 🛑 Rate Limit Check
+                const usageResult = await checkAndIncrementUsage(env, chatId);
+                
+                if (!usageResult.allowed) {
+                    const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
+                    
+                    const requestId = `REQ_${generateRandomId()}`;
+                    const requestData = {
+                        userChatId: chatId,
+                        userMessageId: validationMessageId, 
+                        targetUserId: userId,
+                        userFirstName: userFirstName,
+                        userName: userName
+                    };
+                    await env.POST_STATUS_KV.put(`UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
+
+                    const keyboard = [
+                        [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
+                    ];
+                    
+                    await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
+                    return new Response('Rate limited with inline request button', { status: 200 });
+                }
+                
+                // 3. 🌐 Searching Status 
+                await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
+                
+                // 4. 🧠 Generation Status 
+                await sendTypingAction(chatId); 
+                await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
+                
+                // 5. 🔗 Final Content Generation
+                const replyText = await generateReplyContent(text);
+                
+                // 6. ✅ Final Edit 
+                await editTelegramMessage(chatId, validationMessageId, replyText);
+                
             } else {
-                await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "FAILED");
-                // Owner ට Fail වීමට හේතුව දැනුම් දීම (විකල්ප)
-                await sendTelegramReplyToOwner(`❌ Scheduled Daily Post එක අද දින (${today}) යැවීම අසාර්ථක විය. (Check logs)`);
+                // Not a Trading Question - Guardrail Message 
+                const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer කරන්න.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
+                await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
             }
+            
         }
-    },
-
-    async fetch(request, env, ctx) {
-        const url = new URL(request.url);
-        
-        // Manual Daily Post Trigger for Testing
-        if (url.pathname === '/trigger-manual') {
-            try {
-                 const postContent = await generateScheduledContent(env);
-                 if (postContent) {
-                    const success = await sendTelegramMessage(postContent); 
-                    if (success) {
-                        return new Response('✅ Manual Daily Post Triggered Successfully.', { status: 200 });
-                    }
-                    return new Response('❌ Manual Daily Post Failed to Send to Telegram. (Check logs)', { status: 500 });
-                 }
-                 return new Response('❌ Manual Daily Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
-            } catch (e) {
-                 return new Response(`Error in Manual Trigger: ${e.message}`, { status: 500 });
-            }
-        }
-
-        if (request.method === 'POST') {
-            return handleWebhook(request, env);
-        }
-        
-        return new Response('Worker running. Use the scheduled trigger, /trigger-manual, or set up the Telegram webhook.', { status: 200 });
+    } catch (e) {
+        console.error("Error processing webhook:", e);
     }
+    
+    return new Response('OK', { status: 200 });
+}
+
+
+// --- 7. SCHEDULED HANDLER (FIX: New Named Export Function) ---
+// 🛑 FIX: handleTradingScheduled ලෙස නම වෙනස් කරන ලදී.
+async function handleTradingScheduled(event, env, ctx) {
+    // Manual Trigger logic (for testing outside /fetch)
+    if (event && event.type === 'manual') {
+        const postContent = await generateScheduledContent(env);
+        if (postContent) {
+            const success = await sendTelegramMessage(postContent); 
+            return success ? new Response('✅ Manual Daily Post Triggered Successfully.', { status: 200 }) : new Response('❌ Manual Daily Post Failed to Send to Telegram. (Check logs)', { status: 500 });
+        }
+        return new Response('❌ Manual Daily Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
+    }
+    
+    // Regular Scheduled Trigger logic
+    const postContent = await generateScheduledContent(env); 
+    
+    if (postContent) {
+        const success = await sendTelegramMessage(postContent); 
+        
+        const today = new Date().toISOString().slice(0, 10);
+        if (success) {
+            await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "POSTED");
+        } else {
+            await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "FAILED");
+            await sendTelegramReplyToOwner(`❌ Scheduled Daily Post එක අද දින (${today}) යැවීම අසාර්ථක විය. (Check logs)`);
+        }
+    }
+}
+
+
+// --- 8. FINAL EXPORTS (FIX: Named Exports) ---
+// 🛑 FIX: Default export ඉවත් කර handleTradingWebhook සහ handleTradingScheduled ලෙස Named Export කරන ලදී.
+
+export { 
+    handleTradingWebhook, 
+    handleTradingScheduled 
 };
