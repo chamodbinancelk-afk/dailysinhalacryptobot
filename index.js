@@ -8,8 +8,8 @@ const CONFIG = {
     // 🛑 ඔබේ Channel/Group Chat ID එක (Scheduled Post සඳහා)
     TELEGRAM_CHAT_ID: "1901997764", 
     
-    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Rate Limit අදාළ නොවන Owner ID)
-    OWNER_CHAT_ID: "1901997764", 
+    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Rate Limit අදාළ නොවන Owner ID - String ලෙස තබන්න)
+    OWNER_CHAT_ID: "1901997764", // ⚠️ ඔබේ ID එක String ලෙස තහවුරු කරන්න!
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
@@ -141,12 +141,15 @@ async function sendTypingAction(chatId) {
     }
 }
 
-// 🆕 Owner වෙත Message යැවීම සඳහා (Fix for Owner Message not sending)
+// 🆕 Owner වෙත Message යැවීම සඳහා (Chat ID String ලෙස තහවුරු කරයි)
 async function sendTelegramReplyToOwner(text, keyboard = null) {
     const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
     try {
+        // 🛑 Fix: OWNER_CHAT_ID එක String ලෙස භාවිතා කිරීම තහවුරු කරයි
+        const ownerChatIdString = CONFIG.OWNER_CHAT_ID.toString();
+        
         const body = {
-            chat_id: CONFIG.OWNER_CHAT_ID, // Owner ID එකට පමණක් යවයි
+            chat_id: ownerChatIdString, 
             text: text,
             parse_mode: 'Markdown' 
         };
@@ -161,9 +164,16 @@ async function sendTelegramReplyToOwner(text, keyboard = null) {
         });
 
         const data = await response.json();
+        
+        if (!data.ok) {
+            // 🛑 Debugging: Error Message එක Cloudflare Logs වලට Log කිරීම
+            console.error("TELEGRAM SEND ERROR (Owner Final Check):", JSON.stringify(data));
+        }
+        
         return data.ok; 
     } catch (e) {
-        console.error("Error sending message to owner:", e);
+        // 🛑 Debugging: Network/System Error එකක් Log කිරීම
+        console.error("TELEGRAM FETCH ERROR (Owner Final Check):", e);
         return false;
     }
 }
@@ -327,6 +337,7 @@ function generateRandomId(length = 6) {
 }
 
 async function checkAndIncrementUsage(env, chatId) {
+    // 🛑 Owner ID එක String/Number දෙකම සඳහා පරීක්ෂා කරයි
     if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString()) {
         return { allowed: true, count: 'Unlimited' };
     }
@@ -394,7 +405,7 @@ async function updateAndEditUserCount(env, userId) {
 
 ---
             
-*🌐 Join the Community:* [Mrchamo Official Channel](https://t.me/Mrchamo_Lk)
+*🌐 Join the Community:* [Mrchamo Official Channel](https://tme/Mrchamo_Lk)
 *Use /start to register.*`;
 
             await editPhotoCaption(chatId, parseInt(messageId), newCaption);
@@ -578,6 +589,7 @@ async function handleWebhook(request, env) {
             }
         }
     } catch (e) {
+        // 🛑 Webhook Process කිරීමේදී ඇතිවන ඕනෑම දෝෂයක් Log කිරීම
         console.error("Error processing webhook:", e);
     }
     
@@ -624,6 +636,7 @@ async function handleCallbackQuery(query, env) {
         
         if (!sentToOwner) {
              console.error(`Failed to send unlimit request for user ${targetUserId} to owner.`);
+             // ⚠️ මෙහිදී Telegram API Error එක console log වී ඇත.
         }
         
         return new Response('Unlimit request sent to owner', { status: 200 });
@@ -712,14 +725,14 @@ async function handleCallbackQuery(query, env) {
 // --- 7. WORKER EXPORT ---
 export default {
     async scheduled(event, env, ctx) {
-        // ... (Scheduled Post code - Not included for brevity unless required)
+        // ... (Scheduled Post code)
     },
 
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         
         if (url.pathname === '/trigger-manual') {
-            // ... (Manual Daily Post trigger code - Not included for brevity unless required)
+            // ... (Manual Daily Post trigger code)
         }
 
         if (request.method === 'POST') {
