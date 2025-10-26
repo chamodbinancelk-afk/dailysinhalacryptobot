@@ -1,369 +1,503 @@
 // =================================================================
-// === src/news-logic.js (FINAL BUILD FIX - Correct Exports) ===
+// === src/news-logic.js (Forex Factory Scraping & AI Analysis) ===
 // =================================================================
 
-// --- ES MODULE IMPORTS ---
+// --- ES MODULE IMPORTS (Required for Cloudflare Workers) ---
 import { load } from 'cheerio';
 import moment from 'moment-timezone';
-// Trading logic වෙතින් /start command එක සඳහා අවශ්‍ය ශ්‍රිතය Import කරයි.
-import { updateAndEditUserCount } from './trading-logic';
 
-// --- CONSTANTS ---
-const CHANNEL_LINK_TEXT = "Mrchamo Official Channel";
-const CHANNEL_LINK_URL = "https://t.me/Mrchamo_Lk";
-const LAST_FULL_MESSAGE_KEY = 'LAST_NEWS_MESSAGE';
-const LAST_IMAGE_URL_KEY = 'LAST_NEWS_IMAGE_URL';
+// --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ) ---
+
+const HARDCODED_CONFIG = {
+    // ⚠️ ඔබේ සත්‍ය දත්ත මගින් ප්‍රතිස්ථාපනය කරන්න.
+    TELEGRAM_TOKEN: '5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q',     
+    CHAT_ID: '-1002947156921',            
+    GEMINI_API_KEY: 'AIzaSyDDmFq7B3gTazrcrI_J4J7VhB9YdFyTCaU',            
+};
+
+// --- NEW CONSTANTS FOR MEMBERSHIP CHECK AND BUTTON ---
+const CHANNEL_USERNAME = 'C_F_News';
+const CHANNEL_LINK_TEXT = 'C F NEWS ₿';
+const CHANNEL_LINK_URL = `https://t.me/${CHANNEL_USERNAME}`;
+
+// --- Constants ---
+const COLOMBO_TIMEZONE = 'Asia/Colombo';
+const HEADERS = { 
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://www.forexfactory.com/',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+};
+
+const FF_NEWS_URL = "https://www.forexfactory.com/news";
+
+// --- KV KEYS (Assumes env.NEWS_STATE is bound) ---
+const LAST_HEADLINE_KEY = 'last_forex_headline'; 
+const LAST_FULL_MESSAGE_KEY = 'last_full_news_message'; 
+const LAST_IMAGE_URL_KEY = 'last_image_url'; 
+
+// --- CONSTANT FOR MISSING DESCRIPTION CHECK ---
+const FALLBACK_DESCRIPTION_EN = "No description found.";
 
 
+// =================================================================
 // --- UTILITY FUNCTIONS ---
+// =================================================================
 
+/**
+ * Sends a message to Telegram, using the hardcoded TELEGRAM_TOKEN.
+ * (HTML Parse Mode භාවිතා කරයි)
+ */
+async function sendRawTelegramMessage(chatId, message, imgUrl = null, replyMarkup = null, replyToId = null) {
+    const TELEGRAM_TOKEN = HARDCODED_CONFIG.TELEGRAM_TOKEN;
+    if (!TELEGRAM_TOKEN || TELEGRAM_TOKEN === 'YOUR_TELEGRAM_BOT_TOKEN_HERE') {
+        console.error("TELEGRAM_TOKEN is missing or placeholder.");
+        return false;
+    }
+    const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
+    
+    let currentImgUrl = imgUrl; 
+    let apiMethod = currentImgUrl ? 'sendPhoto' : 'sendMessage';
+    let maxAttempts = 3;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        let payload = { chat_id: chatId, parse_mode: 'HTML' };
+
+        if (apiMethod === 'sendPhoto' && currentImgUrl) {
+            payload.photo = currentImgUrl;
+            payload.caption = message;
+        } else {
+            payload.text = message;
+            apiMethod = 'sendMessage'; 
+        }
+        
+        if (replyMarkup && apiMethod === 'sendMessage') {
+            payload.reply_markup = replyMarkup;
+        }
+
+        if (replyToId) {
+            payload.reply_to_message_id = replyToId;
+            payload.allow_sending_without_reply = true;
+        }
+
+        const apiURL = `${TELEGRAM_API_URL}/${apiMethod}`;
+        
+        try {
+            const response = await fetch(apiURL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.status === 429) {
+                const delay = Math.pow(2, attempt) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue; 
+            }
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                if (apiMethod === 'sendPhoto') {
+                    currentImgUrl = null; 
+                    apiMethod = 'sendMessage';
+                    attempt = -1; // Restart loop as sendMessage
+                    console.error(`SendPhoto failed, retrying as sendMessage: ${errorText}`);
+                    continue; 
+                }
+                console.error(`Telegram API Error (${apiMethod}): ${response.status} - ${errorText}`);
+                break; 
+            }
+            return true; // Success
+        } catch (error) {
+            console.error("Error sending message to Telegram:", error);
+            const delay = Math.pow(2, attempt) * 1000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    return false; 
+}
+
+
+/**
+ * Reads data from the KV Namespace, assuming it is bound as env.NEWS_STATE.
+ */
 async function readKV(env, key) {
-    return env.POST_STATUS_KV.get(key);
-}
-
-// --- TELEGRAM API FUNCTIONS ---
-
-async function sendRawTelegramMessage(chatId, text, CONFIG, photoUrl = null, replyMarkup = null, replyToMessageId = null) {
-    const TELEGRAM_API_ENDPOINT = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/`;
-    
-    let endpoint = 'sendMessage';
-    const body = {
-        chat_id: chatId, 
-        parse_mode: 'HTML',
-        reply_to_message_id: replyToMessageId 
-    };
-
-    if (photoUrl) {
-        endpoint = 'sendPhoto';
-        body.photo = photoUrl;
-        body.caption = text;
-    } else {
-        body.text = text;
-    }
-
-    if (replyMarkup) {
-        body.reply_markup = replyMarkup;
-    }
-
     try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT + endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-        
-        const data = await response.json();
-        return data.ok ? { ok: true, result: data.result } : { ok: false, error: data };
+        if (!env.NEWS_STATE) {
+            console.error("KV Binding 'NEWS_STATE' is missing in ENV.");
+            return null;
+        }
+        const value = await env.NEWS_STATE.get(key); 
+        if (value === null || value === undefined) {
+            return null;
+        }
+        return value;
     } catch (e) {
-        console.error("Send Telegram raw message error:", e);
-        return { ok: false, error: e.toString() };
+        console.error(`KV Read Error (${key}):`, e);
+        return null;
     }
 }
 
-async function checkChannelMembership(userId, CONFIG) {
-    const TELEGRAM_API_ENDPOINT = `https://api.telegram.org/bot${CONFIG.TELEGRAM_BOT_TOKEN}/getChatMember`;
+/**
+ * Writes data to the KV Namespace, assuming it is bound as env.NEWS_STATE.
+ */
+async function writeKV(env, key, value) {
     try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: CONFIG.TELEGRAM_CHAT_ID,
-                user_id: userId
-            }),
-        });
-        
+        if (!env.NEWS_STATE) {
+            console.error("KV Binding 'NEWS_STATE' is missing in ENV. Write failed.");
+            return;
+        }
+        await env.NEWS_STATE.put(key, String(value)); 
+    } catch (e) {
+        console.error(`KV Write Error (${key}):`, e);
+    }
+}
+
+/**
+ * Uses Google Translate's unofficial API for translation.
+ */
+async function translateText(text) {
+    const translationApiUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=si&dt=t&q=${encodeURIComponent(text)}`;
+    try {
+        const response = await fetch(translationApiUrl);
         const data = await response.json();
-        if (data.ok) {
+        if (data && data[0] && Array.isArray(data[0])) {
+            return data[0].map(item => item[0]).join('');
+        }
+        throw new Error("Invalid translation response structure.");
+    } catch (e) {
+        console.error('Translation API Error. Using original text.', e);
+        return `[Translation Failed: ${text}]`;
+    }
+}
+
+
+/**
+ * Checks if a user is a member (or admin/creator) of the specified CHAT_ID channel.
+ */
+async function checkChannelMembership(userId) {
+    const TELEGRAM_TOKEN = HARDCODED_CONFIG.TELEGRAM_TOKEN;
+    const CHAT_ID = HARDCODED_CONFIG.CHAT_ID;
+    const TELEGRAM_API_URL = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
+
+    if (!TELEGRAM_TOKEN || !CHAT_ID) return false;
+
+    const url = `${TELEGRAM_API_URL}/getChatMember?chat_id=${CHAT_ID}&user_id=${userId}`;
+
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.ok && data.result) {
             const status = data.result.status;
-            // 'member', 'creator', 'administrator' හැර අනෙකුත් (left, restricted, kicked) අවස්ථා සඳහා False
-            return ['member', 'creator', 'administrator'].includes(status);
+            if (status === 'member' || status === 'administrator' || status === 'creator') {
+                return true;
+            }
         }
-        return false;
-    } catch (e) {
-        console.error("Membership check error:", e);
-        return false;
+        return false; 
+    } catch (error) {
+        console.error(`[Membership Check Error for user ${userId}]:`, error);
+        return false; // Default to false on error
     }
 }
 
 
+// =================================================================
 // --- GEMINI AI INTEGRATION ---
+// =================================================================
 
-async function generateNewsPostContent(newsItem, CONFIG) {
-    const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+/**
+ * Uses Gemini to generate a short Sinhala summary and sentiment analysis for the news.
+ */
+async function getAISentimentSummary(headline, description) {
+    const GEMINI_API_KEY = HARDCODED_CONFIG.GEMINI_API_KEY;
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
     
-    const inputContent = `
-        Headline: ${newsItem.title}
-        Description: ${newsItem.description}
-        Impact: ${newsItem.impact}
-        Time (UTC): ${newsItem.time}
-        Currency: ${newsItem.currency}
-        Actual: ${newsItem.actual}
-        Forecast: ${newsItem.forecast}
-        Previous: ${newsItem.previous}
-    `;
+    // 1. Initial Key Check
+    if (!GEMINI_API_KEY || GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
+        console.error("Gemini AI: API Key is missing or placeholder. Skipping analysis.");
+        return "⚠️ <b>AI විශ්ලේෂණ සේවාව ක්‍රියාත්මක නොවේ (API Key නැත).</b>";
+    }
 
-    const systemPrompt = `
-        You are an expert financial and trading news reporter for a Sri Lankan audience.
-        
-        Your task is to:
-        1. **Analyze** the provided Fundamental News data (Headline, Currency, Impact, Actual, Forecast, Previous).
-        2. **Determine** the potential *Immediate* impact of the Actual result on the Currency's value (e.g., USD, EUR).
-        3. **Generate a brief, high-impact news post** in **Sinhala language (සිංහල අක්ෂර / Unicode)** using Telegram's **HTML** format (bold tags <b>, line breaks <br/>, anchor tags <a>).
-        4. The post must be structured as follows:
-            - **Line 1:** 💥 {Currency} News Alert!
-            - **Line 2:** 🌐 {Headline}
-            - **Line 3:** 🔴 *Impact:* {Impact Level}
-            - **Line 4:** 📈 *Actual vs Forecast:* {Actual} vs {Forecast} (ප්‍රතිඵලය සහ අපේක්ෂාව)
-            - **Line 5:** ✍️ **Sinhala Interpretation:** (ප්‍රතිඵලය නිසා එම මුදල් ඒකකයේ වටිනාකම කෙසේ වෙනස් විය හැකිද යන්න පිළිබඳ පැහැදිලි, කෙටි Sinhala සාරාංශයක්).
-            - **Final Line:** ℹ️ *Source:* [Forex Factory](https://www.forexfactory.com/calendar)
-        
-        The final output must contain ONLY the HTML formatted content.
-    `;
+    const maxRetries = 3;
+    const initialDelay = 1000;
+
+    const systemPrompt = `Act as a world-class Forex and Crypto market fundamental analyst. Your task is to provide a very brief analysis of the following news, focusing on the sentiment (Bullish, Bearish, or Neutral) and the potential impact on the primary currency mentioned. Use Google Search to ensure the analysis is based on up-to-date market context. The final output MUST be only text in the following exact format: 
+Sentiment: [Bullish/Bearish/Neutral]
+Sinhala Summary: [Sinhala translation of the analysis (very brief, max 2 sentences). Start this summary directly with a capital letter.]`;
     
-    try {
-        const response = await fetch(GEMINI_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ role: "user", parts: [{ text: inputContent }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { temperature: 0.2 } 
-            }),
-        });
-        
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-        
-    } catch (e) {
-        console.error("Gemini news content error:", e);
-        return null;
+    const userQuery = `Analyze the potential market impact of this news and provide a brief summary in Sinhala. Headline: "${headline}". Description: "${description}"`;
+
+    const payload = {
+        contents: [{ parts: [{ text: userQuery }] }],
+        tools: [{ "google_search": {} }],
+        systemInstruction: {
+            parts: [{ text: systemPrompt }]
+        },
+    };
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const response = await fetch(GEMINI_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.status === 429) {
+                const delay = initialDelay * Math.pow(2, attempt);
+                console.warn(`Gemini API: Rate limit hit (429). Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;
+            }
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Gemini API Error (Attempt ${attempt + 1}): HTTP Status ${response.status} - Response: ${errorText}`);
+                throw new Error("Gemini API call failed with non-OK status.");
+            }
+
+            const result = await response.json();
+            const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+            
+            if (!textResponse) {
+                   console.error("Gemini API Error: Response was empty or malformed.");
+                   throw new Error("Gemini response was empty or malformed.");
+            }
+            
+            // Parsing the text response
+            const lines = textResponse.split('\n');
+            let sentiment = 'Neutral';
+            let summarySi = 'AI විශ්ලේෂණයක් සැපයීමට නොහැකි විය.';
+
+            lines.forEach(line => {
+                if (line.startsWith('Sentiment:')) {
+                    sentiment = line.replace('Sentiment:', '').trim();
+                } else if (line.startsWith('Sinhala Summary:')) {
+                    summarySi = line.replace('Sinhala Summary:', '').trim();
+                }
+            });
+            
+            // Format the final output string
+            let sentimentEmoji = '⚪';
+            if (sentiment.toLowerCase().includes('bullish')) sentimentEmoji = '🟢 Bullish 🐂';
+            else if (sentiment.toLowerCase().includes('bearish')) sentimentEmoji = '🔴 Bearish 🐻';
+            else sentimentEmoji = '🟡 Neutral ⚖️';
+
+            return `\n\n✨ <b>AI වෙළඳපොළ විශ්ලේෂණය</b> ✨\n\n` +
+                        `<b>📈 බලපෑම:</b> ${sentimentEmoji}\n\n` +
+                        `<b>📝 සාරාංශය:</b> ${summarySi}`;
+        } catch (error) {
+            console.error(`Gemini API attempt ${attempt + 1} failed:`, error.message);
+            if (attempt === maxRetries - 1) {
+                return "\n\n⚠️ <b>AI විශ්ලේෂණය ලබා ගැනීමට නොහැකි විය.</b>";
+            }
+            const delay = initialDelay * Math.pow(2, attempt);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
     }
 }
 
 
-// --- CORE FOREX NEWS LOGIC ---
+// =================================================================
+// --- CORE FOREX NEWS LOGIC (Fundamental) ---
+// =================================================================
 
-async function fetchForexNewsData(CONFIG) {
-    const FOREX_FACTORY_URL = "https://www.forexfactory.com/calendar";
+/**
+ * Scrapes the latest fundamental news article from Forex Factory.
+ */
+async function getLatestForexNews() {
+    const resp = await fetch(FF_NEWS_URL, { headers: HEADERS });
+    if (!resp.ok) throw new Error(`[SCRAPING ERROR] HTTP error! status: ${resp.status} on news page.`);
+
+    const html = await resp.text();
+    const $ = load(html);
+    // Finds the first news link that is not a 'hit' link
+    const newsLinkTag = $('a[href^="/news/"]').not('a[href$="/hit"]').first();
+
+    if (newsLinkTag.length === 0) return null;
+
+    const headline = newsLinkTag.text().trim();
+    const newsUrl = "https://www.forexfactory.com" + newsLinkTag.attr('href');
     
-    try {
-        // Cloudflare Worker එක හරහා fetch කිරීම
-        const response = await fetch(FOREX_FACTORY_URL, {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            cf: {
-                // Cloudflare Cache මඟහරින්න
-                cacheTtl: 60,
-                cacheEverything: false
-            }
-        });
+    const newsResp = await fetch(newsUrl, { headers: HEADERS });
+    if (!newsResp.ok) throw new Error(`[SCRAPING ERROR] HTTP error! status: ${newsResp.status} on detail page`);
 
-        if (!response.ok) {
-            throw new Error(`Failed to fetch Forex Factory data: ${response.statusText}`);
+    const newsHtml = await newsResp.text();
+    const $detail = load(newsHtml);
+    
+    let imgUrl = $detail('img.attach').attr('src'); 
+    
+    // Scrape main description copy.
+    const description = $detail('p.news__copy').text().trim() || FALLBACK_DESCRIPTION_EN;
+
+    // Fix relative image URL if necessary
+    if (imgUrl && imgUrl.startsWith('/')) {
+        imgUrl = "https://www.forexfactory.com" + imgUrl;
+    } else if (!imgUrl || !imgUrl.startsWith('http')) {
+        imgUrl = null; // Ensure imgUrl is null if it's invalid
+    }
+    
+    return { headline, newsUrl, imgUrl, description };
+}
+
+/**
+ * Scheduled function to fetch news, check if new, analyze, save, and post.
+ */
+async function handleNewsScheduled(env) {
+    const CHAT_ID = HARDCODED_CONFIG.CHAT_ID;
+    try {
+        const news = await getLatestForexNews();
+        if (!news) {
+            console.info("Forex: Failed to scrape any news or news list was empty.");
+            return;
         }
 
-        const html = await response.text();
-        const $ = load(html);
-        const upcomingNews = [];
-        const timeZone = 'Asia/Colombo';
+        const lastHeadline = await readKV(env, LAST_HEADLINE_KEY);
+        const currentHeadline = news.headline;
+        const cleanLastHeadline = lastHeadline ? lastHeadline.trim() : null; 
 
-        // 'data-eventid' සහිත row සොයයි
-        $('.calendar__row').each((i, row) => {
-            const eventId = $(row).attr('data-eventid');
-            if (!eventId) return; // News event row එකක් නොවේ නම් skip කරයි
+        if (currentHeadline === cleanLastHeadline) {
+            console.info(`Forex: No new headline. Last: ${currentHeadline}`);
+            return; 
+        }
+        
+        // New headline found, proceed
+        await writeKV(env, LAST_HEADLINE_KEY, currentHeadline);
 
-            const impactElement = $(row).find('.impact');
-            const impactClass = impactElement.find('span').attr('class');
-            
-            let impact;
-            if (impactClass.includes('high')) {
-                impact = 'High Impact (🔴)';
-            } else if (impactClass.includes('med')) {
-                impact = 'Medium Impact (🟡)';
-            } else if (impactClass.includes('low')) {
-                impact = 'Low Impact (⚪)';
-            } else {
-                return; // High, Med, Low නැතිනම් අදාළ නොවේ (e.g., Non-Impact)
-            }
+        const date_time = moment().tz(COLOMBO_TIMEZONE).format('YYYY-MM-DD hh:mm A');
 
-            // News row වලින් දත්ත එකතු කිරීම
-            const timeRaw = $(row).find('.time').text().trim();
-            const time = timeRaw.includes('Today') ? moment().tz(timeZone).format('YYYY-MM-DD') : timeRaw;
-            
-            const currency = $(row).find('.currency').text().trim();
-            const title = $(row).find('.event').text().trim();
-            const actual = $(row).find('.actual').text().trim() || 'N/A';
-            const forecast = $(row).find('.forecast').text().trim() || 'N/A';
-            const previous = $(row).find('.previous').text().trim() || 'N/A';
-            
-            // Image URL ලබා ගැනීම (අදාළ නම්)
-            const iconUrlMatch = impactElement.find('span').css('background-image')?.match(/url\(['"]?(.*?)['"]?\)/i);
-            const imageUrl = iconUrlMatch ? iconUrlMatch[1] : null;
+        // --- STEP 1: Handle Missing Description and Translate ---
+        let description_si;
+        if (news.description === FALLBACK_DESCRIPTION_EN) {
+            description_si = "ℹ️ විස්තරයක් නොමැත.";
+        } else {
+            // Note: Translation API is not 100% reliable, hence the error handling inside translateText
+            description_si = await translateText(news.description);
+        }
+        
+        // --- STEP 2: Get AI Sentiment Summary ---
+        const newsForAI = (news.description !== FALLBACK_DESCRIPTION_EN) ? news.description : news.headline;
+        const aiSummary = await getAISentimentSummary(news.headline, newsForAI);
+        
+        // --- STEP 3: Construct the final message ---
+        const message = `<b>📰 Fundamental News (සිංහල)</b>\n\n` +
+                             `<b>⏰ Date & Time:</b> ${date_time}\n\n` +
+                             `<b>🌎 Headline (English):</b> ${news.headline}\n\n` +
+                             
+                             // Inject the AI Summary here
+                             `${aiSummary}\n\n` + 
+                             
+                             `<b>🚀 Dev: Mr Chamo 🇱🇰</b>`;
 
-            // දැනටමත් සිදු වූ (Actual value එකක් ඇති) High/Med Impact News පමණක් පෙරීම
-            if (impactClass.includes('high') || impactClass.includes('med')) {
-                 if (actual !== 'N/A' && actual !== '') {
-                     upcomingNews.push({
-                        eventId,
-                        time,
-                        currency,
-                        title,
-                        impact,
-                        actual,
-                        forecast,
-                        previous,
-                        imageUrl: imageUrl || "https://envs.sh/i0q.png", // Fallback image
-                        timestamp: `${time.replace(/[^0-9]/g, '')}-${eventId}`
-                     });
-                 }
-            }
-        });
+        // --- STEP 4: Save for /fundamental command ---
+        // Assumes env.NEWS_STATE is bound for these keys
+        await writeKV(env, LAST_FULL_MESSAGE_KEY, message);
+        await writeKV(env, LAST_IMAGE_URL_KEY, news.imgUrl || ''); 
 
-        return { upcomingNews };
-
-    } catch (e) {
-        console.error("Forex news fetching error:", e);
-        return { upcomingNews: [] };
+        // --- STEP 5: Send the message to the channel ---
+        await sendRawTelegramMessage(CHAT_ID, message, news.imgUrl);
+        
+        console.info(`Forex: Successfully posted new headline: ${currentHeadline}`);
+        
+    } catch (error) {
+        console.error("An error occurred during FUNDAMENTAL scheduled task:", error.stack);
     }
 }
 
 
-// --- WEBHOOK HANDLER ---
+// =================================================================
+// --- TELEGRAM WEBHOOK HANDLER (Bot Commands) ---
+// =================================================================
 
-// 🛑 FIX: 'export' keyword removed from function definition.
-async function handleNewsWebhook(update, env, CONFIG) { 
-    const CHAT_ID = CONFIG.TELEGRAM_CHAT_ID;
-    const OWNER_ID = CONFIG.OWNER_CHAT_ID;
-
+/**
+ * Handles incoming Telegram updates (commands like /start, /fundamental)
+ * Returns a Response object if handled, or null if it should fall through to trading-logic.js
+ */
+async function handleNewsWebhook(update, env) {
+    
     if (!update.message || !update.message.text) {
-        return null;
+        // Return null to allow trading-logic.js to check for Q&A or other commands
+        return null; 
     }
-
+    
     const text = update.message.text.trim();
     const command = text.split(' ')[0].toLowerCase();
     const userId = update.message.from.id;
-    const chatId = update.message.chat.id;
-    const messageId = update.message.message_id;
+    const chatId = update.message.chat.id; 
+    const messageId = update.message.message_id; 
     const username = update.message.from.username || update.message.from.first_name;
 
-    // --- 1. MANDATORY MEMBERSHIP CHECK (Only for /fundamental command) ---
-    if (command === '/fundamental') {
-        const isMember = await checkChannelMembership(userId, CONFIG);
-
-        if (!isMember) {
-            const denialMessage =
-                `⛔ <b>Access Denied</b> ⛔<br/><br/>` +
-                `Hey There <a href="tg://user?id=${userId}">${username}</a>,<br/>` +
-                `You Must Join <b>${CHANNEL_LINK_TEXT}</b> Channel To Use This BOT.<br/>` +
-                `So, Please Join it & Try Again.👀 Thank You ✍️`;
-
-            const replyMarkup = {
-                inline_keyboard: [
-                    [{
-                        text: `🔥 ${CHANNEL_LINK_TEXT} < / >`,
-                        url: CHANNEL_LINK_URL
-                    }]
-                ]
-            };
-
-            await sendRawTelegramMessage(chatId, denialMessage, CONFIG, null, replyMarkup, messageId);
-            return new Response('Handled by News Bot: Membership Check Failed', { status: 200 });
-        }
-    }
-
-    // --- 2. COMMAND EXECUTION ---
+    // --- 1. COMMAND EXECUTION ---
     switch (command) {
         case '/start':
-        case '/help':
+            // Sends the custom /start message and stops the flow
+            const startReplyText = 
+                `<b>👋 Hello There !</b>\n\n` +
+                `💁‍♂️ මේ BOT ගෙන් පුළුවන් ඔයාට <b>Fundamental News</b> සිංහලෙන් දැන ගන්න. News Update වෙද්දීම <b>C F NEWS MAIN CHANNEL</b> එකට යවනවා.\n\n` +
+                `🙋‍♂️ Commands වල Usage එක මෙහෙමයි👇\n\n` +
+                `◇ <code>/fundamental</code> :- 📰 Last Fundamental News\n\n` +
+                `🎯 මේ BOT පැය 24ම Active එකේ තියෙනවා.🔔.. ✍️\n\n` +
+                `◇───────────────◇\n\n` +
+                `🚀 <b>Developer :</b> @chamoddeshan\n` +
+                `🔥 <b>Mr Chamo Corporation ©</b>\n\n` +
+                `◇───────────────◇`;
+            await sendRawTelegramMessage(chatId, startReplyText, null, null, messageId); 
             
-            // Trading Logic වෙතින් User Count Update කිරීම
-            await updateAndEditUserCount(env, userId, CONFIG); 
-            
-            const replyText =
-                `<b>👋 Welcome to the Trading & News Assistant Bot!</b><br/><br/>` +
-                `✨ <b>Assistant Features (AI Trading Q&A)</b><br/><br/>` +
-                `💁‍♂️ ඔබට <b>Trading, Finance, Crypto</b> සම්බන්ධ ඕනෑම ප්‍රශ්නයක් සිංහලෙන් ඇසිය හැක.<br/><br/>` +
-                `උදා: <code>Order Flow Concept එක මොකද්ද?</code><br/><br/>` +
-                `*⚠️ Limit:* ඔබට දිනකට <i>Trading Questions 5</i> ක් පමණක් ඇසිය හැක. Owner හට Unlimited.<br/><br/>` +
-                `◇───────────────◇<br/><br/>` +
-                `📰 <b>News Feature</b><br/><br/>` +
-                `🙋‍♂️ Commands වල Usage එක මෙහෙමයි👇<br/><br/>` +
-                `◇ <code>/fundamental</code> :- 📰 Last Fundamental News<br/><br/>` +
-                `🎯 මේ BOT පැය 24ම Active එකේ තියෙනවා.🔔.. ✍️<br/><br/>` +
-                `🚀 <b>Developer :</b> <a href="https://t.me/chamoddeshan">@chamoddeshan</a><br/>` +
-                `🔥 <b>Mr Chamo Corporation ©</b>`;
-            
-            await sendRawTelegramMessage(chatId, replyText, CONFIG, null, null, messageId);
-            return new Response('Handled by News Bot: /start or /help', { status: 200 });
+            // Return Response to stop index.js from falling through to trading logic
+            return new Response('Handled /start command', { status: 200 }); 
 
         case '/fundamental':
+            // --- Mandatory Membership Check for /fundamental ---
+            const isMember = await checkChannelMembership(userId);
+            
+            if (!isMember) {
+                const denialMessage = 
+                    `⛔ <b>Access Denied</b> ⛔\n\n` +
+                    `Hey There <a href="tg://user?id=${userId}">${username}</a>,\n` +
+                    `You Must Join <b>${CHANNEL_LINK_TEXT}</b> Channel To Use This BOT.\n` +
+                    `So, Please Join it & Try Again.👀 Thank You ✍️`;
+                
+                const replyMarkup = {
+                    inline_keyboard: [
+                        [{ 
+                            text: `🔥 ${CHANNEL_LINK_TEXT} < / >`, 
+                            url: CHANNEL_LINK_URL 
+                        }]
+                    ]
+                };
+
+                await sendRawTelegramMessage(chatId, denialMessage, null, replyMarkup, messageId); 
+                return new Response('Handled /fundamental membership denial', { status: 200 }); // Stop flow
+            }
+
+            // --- Send Last News Post ---
             const messageKey = LAST_FULL_MESSAGE_KEY;
             const lastImageUrl = await readKV(env, LAST_IMAGE_URL_KEY);
             const lastFullMessage = await readKV(env, messageKey);
-
+            
             if (lastFullMessage) {
-                await sendRawTelegramMessage(chatId, lastFullMessage, CONFIG, lastImageUrl, null, messageId);
+                await sendRawTelegramMessage(chatId, lastFullMessage, lastImageUrl, null, messageId); 
             } else {
                 const fallbackText = "Sorry, no recent fundamental news has been processed yet. Please wait for the next update.";
-                await sendRawTelegramMessage(chatId, fallbackText, CONFIG, null, null, messageId);
+                await sendRawTelegramMessage(chatId, fallbackText, null, null, messageId); 
             }
-            return new Response('Handled by News Bot: /fundamental', { status: 200 });
+            // Return Response to stop index.js from falling through to trading logic
+            return new Response('Handled /fundamental command', { status: 200 }); 
 
         default:
-            // news-logic එකෙන් handle නොවන command හෝ Text Trading logic වෙත යැවීමට null ආපසු යවයි.
+            // For all other messages (Q&A, /help, etc.), return null to allow
+            // src/index.js to pass the request to handleTradingWebhook.
             return null;
     }
 }
 
 
-// --- SCHEDULED HANDLER ---
-// 🛑 FIX: 'export' keyword removed from function definition.
-async function handleNewsScheduled(event, env, ctx, CONFIG) {
-    const CHAT_ID = CONFIG.TELEGRAM_CHAT_ID;
-    const POST_STATUS_KV = env.POST_STATUS_KV;
-    
-    // 1. Fetch News Data
-    const newsData = await fetchForexNewsData(CONFIG);
+// =================================================================
+// --- FINAL EXPORTS (Named Exports for index.js) ---
+// =================================================================
 
-    if (!newsData || newsData.upcomingNews.length === 0) {
-        console.log("No news data fetched or relevant high/med impact news found.");
-        return;
-    }
-
-    const { upcomingNews } = newsData;
-
-    // 2. Process News and Generate Post
-    for (const newsItem of upcomingNews) {
-        // Prevent duplicate processing
-        const kvKey = `news_processed:${newsItem.timestamp}`;
-        const processed = await POST_STATUS_KV.get(kvKey);
-
-        if (processed) {
-            continue;
-        }
-
-        // Generate Sinhala post content
-        const newsPostContent = await generateNewsPostContent(newsItem, CONFIG);
-        
-        if (newsPostContent) {
-            // 3. Send Telegram Post
-            // Note: sendRawTelegramMessage uses HTML parse mode, but the content generation uses HTML tags.
-            const result = await sendRawTelegramMessage(CHAT_ID, newsPostContent, CONFIG, newsItem.imageUrl);
-            
-            if (result.ok) {
-                // 4. Update KV store to prevent reposting and update last post data
-                await POST_STATUS_KV.put(kvKey, "POSTED", { expirationTtl: 86400 }); // Expires in 24 hours
-                await POST_STATUS_KV.put(LAST_FULL_MESSAGE_KEY, newsPostContent, { expirationTtl: 86400 }); 
-                await POST_STATUS_KV.put(LAST_IMAGE_URL_KEY, newsItem.imageUrl, { expirationTtl: 86400 }); 
-            } else {
-                console.error("Failed to send scheduled news post:", result.error);
-            }
-        }
-    }
-}
-
-
-// --- FINAL EXPORTS (Named Exports) ---
 export {
-    handleNewsWebhook,
-    handleNewsScheduled
+    handleNewsScheduled, // For index.js scheduled() handler
+    handleNewsWebhook    // For index.js fetch() webhook handler
 };
