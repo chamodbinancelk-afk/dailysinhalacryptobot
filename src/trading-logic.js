@@ -1,5 +1,5 @@
 // =================================================================
-// === src/trading-logic.js (FINAL BUILD FIX - Correct Exports & Webhook Handling) ===
+// === src/trading-logic.js (FINAL FIX - Added Daily Scheduled Check) ===
 // =================================================================
 
 // --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ) ---
@@ -219,7 +219,8 @@ async function sendTelegramMessage(caption) {
             }),
         });
         
-        return response.ok;
+        const data = await response.json();
+        return data.ok;
     } catch (e) {
         return false;
     }
@@ -524,10 +525,8 @@ async function sendInitialCountPost(env, ownerChatId) {
 
 // --- 5. CORE WEBHOOK HANDLER (TRADING LOGIC) ---
 
-// 🛑 FIX: Function name and signature changed to accept 'update' object directly
 async function handleTradingWebhook(update, env, CONFIG) {
     try {
-        // 🛑 FIX APPLIED: request.json() call removed as 'update' is the JSON object passed from index.js
         
         if (update && update.callback_query) {
             return handleCallbackQuery(update.callback_query, env);
@@ -577,27 +576,16 @@ async function handleTradingWebhook(update, env, CONFIG) {
             if (text.startsWith('/')) {
                 const command = text.split(' ')[0].toLowerCase();
                 
-                if (command === '/start') {
+                if (command === '/start' || command === '/help') {
+                    // Note: /start and /help are already handled by news-logic, 
+                    // which calls updateAndEditUserCount. This section is a fallback/redundancy.
                     await updateAndEditUserCount(env, userId);
                     
                     const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
                     await sendTelegramReply(chatId, welcomeMessage, messageId);
                     
-                    // index.js වෙතින් handleNewsWebhook කැඳවූ පසු, එහි /start/help command එක handle කරනු ලැබේ.
-                    // එබැවින්, මෙහි නැවතත් response එකක් return කිරීමෙන් වළකිනු ලැබේ.
-                    return new Response('Handled Trading Commands', { status: 200 });
-
-                } else if (command === '/help') {
-                    const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
-                    await sendTelegramReply(chatId, welcomeMessage, messageId);
-                    
-                    // index.js වෙතින් handleNewsWebhook කැඳවූ පසු, එහි /start/help command එක handle කරනු ලැබේ.
                     return new Response('Handled Trading Commands', { status: 200 });
                 }
-                
-                // news-logic වෙතින් handle නොකළ වෙනත් commands (e.g., /fundamental හැර)
-                // එය trading logic එකක් නොවේ නම්, එය /fundamental/start/help වැනි command එකක් විය යුතුය.
-                // එබැවින්, ඉතිරි සියල්ල, trading logic එකක් ලෙස සලකා, පහතට යවනු ලැබේ.
             }
 
             // --- TRADING QUESTION LOGIC (FIXED: Now handles short terms too!) ---
@@ -658,7 +646,6 @@ async function handleTradingWebhook(update, env, CONFIG) {
         }
     } catch (e) {
         console.error("Error processing webhook:", e);
-        // This is the final catch block, if an error happens here, return a 200 OK to Telegram to avoid retries.
     }
     
     return new Response('OK from Trading Logic', { status: 200 });
@@ -667,6 +654,7 @@ async function handleTradingWebhook(update, env, CONFIG) {
 
 // --- 6. Callback Query Handler (Owner Message Edit Logic) ---
 async function handleCallbackQuery(query, env) {
+    // ... [Callback Query Logic is unchanged and omitted for brevity] ...
     const data = query.data;
     const callbackQueryId = query.id;
     const userId = query.from.id;
@@ -830,8 +818,18 @@ async function handleCallbackQuery(query, env) {
 
 // --- 7. SCHEDULED HANDLER (TRADING LOGIC) ---
 
-// 🛑 FIX: Extracted scheduled logic into a named function
 async function handleTradingScheduled(event, env, ctx, CONFIG) {
+    const today = new Date().toISOString().slice(0, 10);
+    const POSTED_KEY = `trading_post_posted:${today}`;
+
+    // 🛑 NEW FIX: Check if already posted today
+    const alreadyPosted = await env.POST_STATUS_KV.get(POSTED_KEY);
+    if (alreadyPosted === "POSTED") {
+        console.log("Trading post already sent today. Skipping scheduled task.");
+        return { status: 200, content: "Already posted today" };
+    }
+    // 🛑 END NEW FIX
+
     // 1. Daily Content Generation (KV update logic inside)
     const postContent = await generateScheduledContent(env); 
     
@@ -840,13 +838,13 @@ async function handleTradingScheduled(event, env, ctx, CONFIG) {
         const success = await sendTelegramMessage(postContent); 
         
         // 3. KV එකේ Post Status එක ගබඩා කිරීම
-        const today = new Date().toISOString().slice(0, 10);
         if (success) {
-            await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "POSTED");
+            // TTL එකක් නොමැතිව තබන්න. එය මැදියම Reset වේ.
+            await env.POST_STATUS_KV.put(POSTED_KEY, "POSTED"); 
             return { status: 200, content: "Post successful" };
         } else {
-            await env.POST_STATUS_KV.put(`trading_post_posted:${today}`, "FAILED");
-            // Owner ට Fail වීමට හේතුව දැනුම් දීම (විකල්ප)
+            // Post එක Fail වුවහොත්, නැවත උත්සාහ කිරීමට ඉඩ දීම සඳහා KV එකේ තබා නොගනී.
+            console.error(`Scheduled Daily Post failed to send on ${today}.`);
             await sendTelegramReplyToOwner(`❌ Scheduled Daily Post එක අද දින (${today}) යැවීම අසාර්ථක විය. (Check logs)`);
             return { status: 500, content: "Post failed to send to Telegram" };
         }
