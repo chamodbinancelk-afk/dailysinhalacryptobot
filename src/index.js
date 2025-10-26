@@ -1,100 +1,86 @@
 // =================================================================
-// === src/index.js (FINAL UNIFIED FIX) ===
+// === src/index.js (FINAL ENTRY POINT AND FLOW CONTROL) ===
 // =================================================================
 
-// --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ) ---
-// ⚠️ ඔබගේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
+// --- 1. IMPORT MODULES ---
 
-const CONFIG = {
-    // 🛑 ඔබේ Bot Token එක
-    TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
-    
-    // 🛑 ඔබේ Channel/Group Chat ID එක (Lifetime Post එක යැවිය යුතු ස්ථානය)
-    TELEGRAM_CHAT_ID: "-1002947156921", // ඔබ ලබා දුන් Channel ID එක
-    
-    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Owner ගේ Private ID එක - String ලෙස තබන්න)
-    OWNER_CHAT_ID: "1901997764", // ඔබේ Owner ID එක මෙය නොවේ නම් වෙනස් කරන්න
-    
-    // 🛑 ඔබේ අලුත්ම Gemini API Key එක
-    GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
-    
-    // Telegram API Endpoint Base URL එක (Token එකෙන් සෑදී ඇත)
-    TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`,
-    
-    // දිනකට උපරිම අවසර ලත් භාවිතය
-    DAILY_LIMIT: 5
-};
+// Forex Factory Scraping, /fundamental, and News Scheduled Task
+import { handleNewsScheduled, handleNewsWebhook } from './news-logic';
 
-// --- 1. IMPORT HANDLERS ---
-import { handleTradingWebhook, handleTradingScheduled } from './trading-logic';
-import { handleNewsWebhook, handleNewsScheduled } from './news-logic';
+// Trading AI Q&A, Daily Trading Post, and User Counting
+import { handleTradingScheduled, handleTradingWebhook } from './trading-logic';
 
-// --- 2. WORKER EXPORT (MAIN ENTRY POINT) ---
+
+// =================================================================
+// --- CLOUDFLARE WORKER HANDLERS ---
+// =================================================================
+
 export default {
+    /**
+     * Handles scheduled events (Cron trigger).
+     * Runs both News Scraping and Trading Post tasks.
+     */
     async scheduled(event, env, ctx) {
-        // News සහ Trading Logic දෙකම ක්‍රියාත්මක කරයි
-        
-        try {
-            // Trading Post එක (AI Educational Post)
-            ctx.waitUntil(handleTradingScheduled(event, env, ctx, CONFIG));
-            
-            // News Post එක (Forex Fundamental News)
-            ctx.waitUntil(handleNewsScheduled(event, env, ctx, CONFIG)); 
-
-        } catch (e) {
-            console.error("Error in scheduled handler:", e);
-        }
+        ctx.waitUntil(
+            (async () => {
+                console.log("--- SCHEDULED TASK STARTED ---");
+                
+                // 1. Run Forex Factory News Scraper and Post (uses env.NEWS_STATE)
+                await handleNewsScheduled(env); 
+                
+                // 2. Run Trading Post and User Count Update (uses env.POST_STATUS_KV)
+                await handleTradingScheduled(env);
+                
+                console.log("--- SCHEDULED TASK FINISHED ---");
+            })()
+        );
     },
 
+    /**
+     * Handles Fetch requests (Telegram Webhook and Manual Triggers)
+     */
     async fetch(request, env, ctx) {
-        if (request.method !== 'POST') {
-            const url = new URL(request.url);
-            
-            // Manual Daily Post Trigger for Testing (Trading Post)
-            if (url.pathname === '/trigger-trading-manual') {
-                try {
-                     const result = await handleTradingScheduled({type: 'manual'}, env, ctx, CONFIG);
-                     if (result && result.status === 200) {
-                        return new Response('✅ Manual Trading Post Triggered Successfully.', { status: 200 });
-                     }
-                     return new Response(`❌ Manual Trading Post Failed: ${result?.content || 'Unknown Error'}`, { status: 500 });
-                } catch (e) {
-                     return new Response(`Error in Manual Trading Trigger: ${e.message}`, { status: 500 });
-                }
-            }
-
-            // Manual Daily Post Trigger for Testing (News Post)
-            if (url.pathname === '/trigger-news-manual') {
-                try {
-                     await handleNewsScheduled({type: 'manual'}, env, ctx, CONFIG);
-                     return new Response('✅ Manual News Post Triggered Successfully. (Check Channel)', { status: 200 });
-                } catch (e) {
-                     return new Response(`Error in Manual News Trigger: ${e.message}`, { status: 500 });
-                }
-            }
-
-            return new Response('Worker running. Set up Telegram webhook to POST here.', { status: 200 });
-        }
-        
-        // --- 3. INCOMING TELEGRAM WEBHOOK (POST REQUEST) ---
         try {
-            const update = await request.json();
-            
-            // --- 3.1. News Bot Handler (Membership check and /fundamental, /start, /help) ---
-            // news-logic එකෙන් message එකක් handle කළේ නම්, response එක ලැබෙනු ඇත.
-            const newsResponse = await handleNewsWebhook(update, env, CONFIG);
-            if (newsResponse) {
-                return newsResponse; // News Logic විසින්ම response එක ආපසු යවනු ඇත.
-            }
-            
-            // --- 3.2. Trading Bot Handler (AI Q&A, Owner Commands, Callback Queries) ---
-            // news-logic වෙතින් handle නොකළ commands හෝ සරල text message/callback queries trading-logic වෙත යවනු ලැබේ.
-            return handleTradingWebhook(update, env, CONFIG);
+            const url = new URL(request.url);
 
+            // --- Manual Triggers for Testing ---
+            if (url.pathname === '/trigger-trading') {
+                await handleTradingScheduled(env);
+                return new Response("Trading Scheduled Tasks manually triggered.", { status: 200 });
+            }
+            if (url.pathname === '/trigger-news') {
+                await handleNewsScheduled(env);
+                return new Response("Forex Factory News Scraper manually triggered.", { status: 200 });
+            }
+
+            // --- Webhook Handling (Telegram POST) ---
+            if (request.method === 'POST') {
+                console.log("--- WEBHOOK REQUEST RECEIVED ---");
+                const update = await request.json();
+                
+                // 1. Try News Logic First (/start, /fundamental commands, and membership checks)
+                // If news-logic handles it (returns a Response object), the flow stops here.
+                const newsResult = await handleNewsWebhook(update, env);
+                
+                if (newsResult && newsResult instanceof Response) {
+                    return newsResult;
+                }
+                
+                // 2. If News Logic did NOT handle it (returned null), fall through to Trading Logic
+                // This handles Q&A (plain text), /help, and other trading commands.
+                console.log("Falling through to Trading Logic for Q&A...");
+                const tradingResult = await handleTradingWebhook(update, env);
+                
+                // trading-logic.js always returns a Response, so we return it.
+                return tradingResult;
+            }
+
+            // --- Default Response ---
+            return new Response('Forex Trading Bot Worker is Active. Use Telegram webhook or manual triggers.', { status: 200 });
+            
         } catch (e) {
-            console.error("Error processing fetch request:", e);
-            // If the JSON parsing fails (e.g., image_986c67.png), return a descriptive error.
-            return new Response(`Error processing webhook: ${e.message}`, { status: 200 });
+            console.error('[CRITICAL FETCH FAILURE]:', e.stack);
+            return new Response(`Worker threw an unhandled exception: ${e.message}. Check Logs.`, { status: 500 });
         }
     }
 };
