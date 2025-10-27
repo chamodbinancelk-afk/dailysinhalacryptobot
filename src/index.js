@@ -16,16 +16,16 @@ const CONFIG = {
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
     
     // --- Forex News Config (Overridden to use Trading Bot's credentials) ---
-    FOREX_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", // <--- 🔑 Same as TRADING_BOT_TOKEN
-    FOREX_CHAT_ID: "-1002947156921", // <--- 🔑 Same as TRADING_CHAT_ID
+    FOREX_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
+    FOREX_CHAT_ID: "-1002947156921", 
 
     // --- Trading Assistant Config:
     DAILY_LIMIT: 5,
+    COLOMBO_TIMEZONE: 'Asia/Colombo',
 
     // --- Forex News Display/Scraping Config:
     CHANNEL_USERNAME: 'C_F_News',
     CHANNEL_LINK_TEXT: 'C F NEWS ₿',
-    COLOMBO_TIMEZONE: 'Asia/Colombo',
     FF_NEWS_URL: "https://www.forexfactory.com/news",
     FALLBACK_DESCRIPTION_EN: "No description found.",
     CHANNEL_LINK_URL: `https://t.me/C_F_News`,
@@ -59,7 +59,7 @@ const FOREX_STATUS_KEYS = {
 
 
 // =================================================================
-// --- 1. TELEGRAM UTILITIES (Simplified: ALL use TRADING_API_BASE) ---
+// --- 1. TELEGRAM UTILITIES ---
 // =================================================================
 
 /**
@@ -343,7 +343,7 @@ async function translateText(text) {
 }
 
 // =================================================================
-// --- 4. FOREX NEWS BOT LOGIC (FIXED: KV Update AFTER successful post) ---
+// --- 4. FOREX NEWS BOT LOGIC (Remains Scheduled) ---
 // =================================================================
 
 async function checkChannelMembership(userId) {
@@ -488,7 +488,6 @@ async function fetchForexNews(env) {
         const currentHeadline = news.headline;
         const cleanLastHeadline = lastHeadline ? lastHeadline.trim() : null; 
 
-        // FIX: Check if the current headline is the same as the last successfully posted headline
         if (currentHeadline === cleanLastHeadline) {
             console.info(`Forex: No new headline. Last: ${currentHeadline}. Skipping post.`);
             return; 
@@ -514,11 +513,9 @@ async function fetchForexNews(env) {
                          
                          `<b>🚀 Dev: Mr Chamo 🇱🇰</b>`;
 
-        // Send the message using the unified sender (HTML mode)
         const postSuccess = await sendUnifiedMessage(CONFIG.FOREX_CHAT_ID, message, 'HTML', news.imgUrl);
         
         if (postSuccess) {
-            // FIX: ONLY update KV keys if the post was successful
             await writeForexKV(env, FOREX_STATUS_KEYS.LAST_HEADLINE, currentHeadline);
             await writeForexKV(env, FOREX_STATUS_KEYS.LAST_FULL_MESSAGE, message);
             await writeForexKV(env, FOREX_STATUS_KEYS.LAST_IMAGE_URL, news.imgUrl || ''); 
@@ -533,7 +530,7 @@ async function fetchForexNews(env) {
 
 
 // =================================================================
-// --- 5. TRADING ASSISTANT AI LOGIC ---
+// --- 5. TRADING ASSISTANT AI LOGIC (Manual Command Only) ---
 // =================================================================
 
 async function generateScheduledContent(env) { 
@@ -576,7 +573,7 @@ async function generateScheduledContent(env) {
             const newTopicMatch = content.match(/\*([^*]+)\*/);
             const newTopic = newTopicMatch ? newTopicMatch[1].trim() : "Untitled Post";
             
-            // Only update the topic list if the generation was successful (post success KV update is done outside)
+            // Only update the topic list if the generation was successful 
             coveredTopics.push(newTopic);
             
             await writeTradingKV(env, TRADING_STATUS_KEYS.COVERED_TOPICS, JSON.stringify(coveredTopics));
@@ -781,7 +778,7 @@ async function sendInitialCountPost(env, ownerChatId) {
 
 
 // =================================================================
-// --- 6. COMMAND AND WEBHOOK HANDLERS (Delegation) ---
+// --- 6. COMMAND AND WEBHOOK HANDLERS ---
 // =================================================================
 
 async function handleTelegramUpdate(update, env) {
@@ -850,14 +847,50 @@ async function handleTradingWebhookLogic(update, env) {
         const userFirstName = message.from.first_name || "N/A";
         const userName = message.from.username ? `@${message.from.username}` : "N/A";
 
-        // --- NEW: Owner Command to Send Initial Count Post ---
+        // --- ADMIN COMMANDS (Owner Only) ---
+
+        // NEW ADMIN COMMAND: Manual Trading Post
+        if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/trading_post')) {
+            const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
+            const postKey = `daily_post_status:${today}`;
+            
+            // Check if already posted today
+            if (await readTradingKV(env, postKey) === 'POSTED') {
+                await sendTelegramReply(chatId, "❌ *අද දින Trading Post එක දැනටමත් යවා ඇත.* නැවත යැවීමට අවශ්‍ය නම්, KV Key එක මකා දමා නැවත උත්සාහ කරන්න.", messageId);
+                return new Response('Post already sent', { status: 200 });
+            }
+
+            const statusMessageId = await sendTelegramReply(chatId, "⏳ *Trading Post Content එක සකස් කරමින්...*", messageId);
+            if (!statusMessageId) { return new Response('Failed to send status message', { status: 500 }); }
+
+            const postContent = await generateScheduledContent(env);
+
+            if (postContent) {
+                await editTelegramMessage(chatId, statusMessageId, "✍️ *Channel එකට Post කරමින්...*");
+                
+                const success = await sendTelegramMessage(postContent);
+                
+                if (success) {
+                    await writeTradingKV(env, postKey, 'POSTED', { expirationTtl: 86400 }); // Expires in 24 hours
+                    await editTelegramMessage(chatId, statusMessageId, "✅ *Trading Post එක සාර්ථකව Channel එකට යවන ලදී.* (KV Status Updated)");
+                } else {
+                    await editTelegramMessage(chatId, statusMessageId, "❌ *Trading Post එක Telegram වෙත යැවීම අසාර්ථක විය.* (KV Status Not Updated)");
+                }
+            } else {
+                await editTelegramMessage(chatId, statusMessageId, "❌ *Trading Post Content Generation එක අසාර්ථක විය.*");
+            }
+            return new Response('Trading post command processed', { status: 200 });
+        }
+
+
+        // Existing Admin Command: /send_count_post
         if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/send_count_post')) {
             const result = await sendInitialCountPost(env, chatId); 
             await sendTelegramReply(chatId, result.message, messageId);
             return new Response('Count post command processed', { status: 200 });
         }
 
-        // --- ADMIN COMMANDS (Owner Only) ---
+        // Existing Admin Command: /unlimit
         if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/unlimit')) {
             const parts = text.split(' ');
             if (parts.length === 2) {
@@ -1037,32 +1070,11 @@ async function handleCallbackQuery(query, env) {
 
 
 // =================================================================
-// --- 7. WORKER EXPORT (FIXED Scheduled Task Logic) ---
+// --- 7. WORKER EXPORT (Updated Entry Point) ---
 // =================================================================
 
 async function handleScheduledTasks(env) {
-    const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
-    const postKey = `daily_post_status:${today}`;
-    const postStatus = await readTradingKV(env, postKey);
-
-    // 1. Trading Assistant Daily Content Post (FIXED DUPLICATION)
-    if (postStatus !== 'POSTED') {
-        const postContent = await generateScheduledContent(env); 
-        if (postContent) {
-            const success = await sendTelegramMessage(postContent);
-            if (success) {
-                // FIX: Write status with TTL only on success
-                await writeTradingKV(env, postKey, 'POSTED', { expirationTtl: 86400 }); // Expires in 24 hours
-                console.log(`Trading: Daily post successfully sent for ${today}.`);
-            } else {
-                await sendTelegramReplyToOwner(`❌ Scheduled Daily Post එක අද දින (${today}) යැවීම අසාර්ථක විය. (Check logs)`);
-            }
-        }
-    } else {
-        console.info(`Trading: Daily post already sent for ${today}. Skipping.`);
-    }
-    
-    // 2. Forex News Fetch and Post (Uses fixed internal logic)
+    // 1. Forex News Fetch and Post (This is the ONLY scheduled task now)
     await fetchForexNews(env);
 }
 
@@ -1080,20 +1092,26 @@ export default {
                 await fetchForexNews(env);
                 return new Response('✅ Manual Forex News Triggered Successfully (Duplication Check Active).', { status: 200 });
             }
+            
+            // MANUAL TRIGGER FOR TRADING POST (Respects Daily Limit)
             if (url.pathname === '/trigger-trading') {
                 const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
                 const postKey = `daily_post_status:${today}`;
 
+                if (await readTradingKV(env, postKey) === 'POSTED') {
+                    return new Response('❌ Manual Trading Post Failed: Post already sent today (KV Status: POSTED).', { status: 500 });
+                }
+
                 const postContent = await generateScheduledContent(env);
-                 if (postContent) {
+                if (postContent) {
                     const success = await sendTelegramMessage(postContent); 
                     if (success) { 
                         await writeTradingKV(env, postKey, 'POSTED', { expirationTtl: 86400 }); 
                         return new Response('✅ Manual Trading Post Triggered Successfully (Marked as Posted).', { status: 200 }); 
                     }
                     return new Response('❌ Manual Trading Post Failed to Send to Telegram. (Check logs)', { status: 500 });
-                 }
-                 return new Response('❌ Manual Trading Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
+                }
+                return new Response('❌ Manual Trading Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
             }
             
             // Status check
