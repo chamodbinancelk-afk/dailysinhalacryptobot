@@ -16,7 +16,6 @@ const CONFIG = {
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
     
     // --- Forex News Config (Overridden to use Trading Bot's credentials) ---
-    // These are still used in the logic, but the actual values point to TRADING_
     FOREX_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", // <--- 🔑 Same as TRADING_BOT_TOKEN
     FOREX_CHAT_ID: "-1002947156921", // <--- 🔑 Same as TRADING_CHAT_ID
 
@@ -42,7 +41,7 @@ const CONFIG = {
 
 // --- Telegram API Base URLs (Derived from Hardcoded Config) ---
 const TRADING_API_BASE = `https://api.telegram.org/bot${CONFIG.TRADING_BOT_TOKEN}`;
-const FOREX_API_BASE = `https://api.telegram.org/bot${CONFIG.FOREX_BOT_TOKEN}`; // Still points to the same API base
+const FOREX_API_BASE = `https://api.telegram.org/bot${CONFIG.FOREX_BOT_TOKEN}`; 
 
 // --- KV KEYS ---
 const TRADING_STATUS_KEYS = {
@@ -65,12 +64,9 @@ const FOREX_STATUS_KEYS = {
 
 /**
  * Sends a message using the Unified Bot's credentials. Supports HTML parsing and photos.
- * Note: This replaces both the old 'sendForexNewsMessage' and the basic 'sendTelegramMessage'
- * for consistency in message sending, though 'sendTelegramMessage' will be kept for simplicity
- * for the Trading Assistant's markdown posts.
  */
 async function sendUnifiedMessage(chatId, message, parseMode = 'Markdown', imgUrl = null, replyMarkup = null, replyToId = null) {
-    const TELEGRAM_API_URL = TRADING_API_BASE; // Use the primary Bot Token
+    const TELEGRAM_API_URL = TRADING_API_BASE; 
     
     let currentImgUrl = imgUrl; 
     let apiMethod = currentImgUrl ? 'sendPhoto' : 'sendMessage';
@@ -133,7 +129,7 @@ async function sendUnifiedMessage(chatId, message, parseMode = 'Markdown', imgUr
     return false; 
 }
 
-// --- Trading Assistant's Telegram Functions (Retained but using TRADING_API_BASE) ---
+// --- Trading Assistant's Telegram Functions ---
 
 async function sendTypingAction(chatId) {
     const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/sendChatAction`;
@@ -272,7 +268,6 @@ async function editPhotoCaption(chatId, messageId, caption) {
 // --- 2. KV UTILITIES ---
 // =================================================================
 
-// KV functions remain the same as they use the environment bindings
 async function readTradingKV(env, key) {
     try {
         if (!env.POST_STATUS_KV) { return null; }
@@ -348,12 +343,9 @@ async function translateText(text) {
 }
 
 // =================================================================
-// --- 4. FOREX NEWS BOT LOGIC (Simplified Telegram Usage) ---
+// --- 4. FOREX NEWS BOT LOGIC (FIXED: KV Update AFTER successful post) ---
 // =================================================================
 
-/**
- * Checks if a user is a member (or admin/creator) of the Forex Channel.
- */
 async function checkChannelMembership(userId) {
     const TELEGRAM_API_URL = FOREX_API_BASE;
     const CHAT_ID = CONFIG.FOREX_CHAT_ID;
@@ -380,9 +372,6 @@ async function checkChannelMembership(userId) {
 }
 
 
-/**
- * Uses Gemini to generate a short Sinhala summary and sentiment analysis for the news.
- */
 async function getAISentimentSummary(headline, description) {
     const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
@@ -499,13 +488,12 @@ async function fetchForexNews(env) {
         const currentHeadline = news.headline;
         const cleanLastHeadline = lastHeadline ? lastHeadline.trim() : null; 
 
+        // FIX: Check if the current headline is the same as the last successfully posted headline
         if (currentHeadline === cleanLastHeadline) {
-            console.info(`Forex: No new headline. Last: ${currentHeadline}`);
+            console.info(`Forex: No new headline. Last: ${currentHeadline}. Skipping post.`);
             return; 
         }
         
-        await writeForexKV(env, FOREX_STATUS_KEYS.LAST_HEADLINE, currentHeadline);
-
         const date_time = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD hh:mm A');
 
         let description_si;
@@ -518,7 +506,6 @@ async function fetchForexNews(env) {
         const newsForAI = (news.description !== CONFIG.FALLBACK_DESCRIPTION_EN) ? news.description : news.headline;
         const aiSummary = await getAISentimentSummary(news.headline, newsForAI);
         
-        // Note: Using <b> and </b> for HTML parse mode for the Forex Post
         const message = `<b>📰 Fundamental News (සිංහල)</b>\n\n` +
                          `<b>⏰ Date & Time:</b> ${date_time}\n\n` +
                          `<b>🌎 Headline (English):</b> ${news.headline}\n\n` +
@@ -527,11 +514,18 @@ async function fetchForexNews(env) {
                          
                          `<b>🚀 Dev: Mr Chamo 🇱🇰</b>`;
 
-        await writeForexKV(env, FOREX_STATUS_KEYS.LAST_FULL_MESSAGE, message);
-        await writeForexKV(env, FOREX_STATUS_KEYS.LAST_IMAGE_URL, news.imgUrl || ''); 
-
-        // Use the unified sender (HTML mode)
-        await sendUnifiedMessage(CONFIG.FOREX_CHAT_ID, message, 'HTML', news.imgUrl);
+        // Send the message using the unified sender (HTML mode)
+        const postSuccess = await sendUnifiedMessage(CONFIG.FOREX_CHAT_ID, message, 'HTML', news.imgUrl);
+        
+        if (postSuccess) {
+            // FIX: ONLY update KV keys if the post was successful
+            await writeForexKV(env, FOREX_STATUS_KEYS.LAST_HEADLINE, currentHeadline);
+            await writeForexKV(env, FOREX_STATUS_KEYS.LAST_FULL_MESSAGE, message);
+            await writeForexKV(env, FOREX_STATUS_KEYS.LAST_IMAGE_URL, news.imgUrl || ''); 
+            console.log(`Forex: Successfully posted and updated KV for: ${currentHeadline}`);
+        } else {
+            console.error("Forex: Failed to post message, KV not updated to prevent duplication.");
+        }
     } catch (error) {
         console.error("An error occurred during FUNDAMENTAL task:", error.stack);
     }
@@ -582,6 +576,7 @@ async function generateScheduledContent(env) {
             const newTopicMatch = content.match(/\*([^*]+)\*/);
             const newTopic = newTopicMatch ? newTopicMatch[1].trim() : "Untitled Post";
             
+            // Only update the topic list if the generation was successful (post success KV update is done outside)
             coveredTopics.push(newTopic);
             
             await writeTradingKV(env, TRADING_STATUS_KEYS.COVERED_TOPICS, JSON.stringify(coveredTopics));
@@ -662,7 +657,7 @@ async function validateTopic(userQuestion) {
 }
 
 
-// --- 5.1 Trading Assistant Rate Limit and User Count Logic ---
+// --- 5.1 Trading Assistant Rate Limit and User Count Logic (Unchanged) ---
 
 async function checkAndIncrementUsage(env, chatId) {
     if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString()) {
@@ -803,7 +798,6 @@ async function handleTelegramUpdate(update, env) {
     const username = update.message.from.username || update.message.from.first_name;
 
     // --- Forex News Bot's /fundamental command ---
-    // Note: Since both bots use the same token/chat ID, this command may work in both contexts.
     if (command === '/fundamental') { 
         const isMember = await checkChannelMembership(userId);
 
@@ -833,7 +827,6 @@ async function handleTelegramUpdate(update, env) {
         const lastFullMessage = await readForexKV(env, messageKey);
         
         if (lastFullMessage) {
-            // Use unified sender with HTML mode
             await sendUnifiedMessage(chatId, lastFullMessage, 'HTML', lastImageUrl, null, messageId); 
         } else {
             const fallbackText = "Sorry, no recent fundamental news has been processed yet. Please wait for the next update.";
@@ -841,9 +834,6 @@ async function handleTelegramUpdate(update, env) {
         }
         return;
     }
-    
-    // --- Forex News Bot's /start command (only replies if in the main chat) ---
-    // Note: Both bots reply to /start. We let the Trading Assistant logic handle it generally for user tracking.
     
     // --- All other commands/messages go to the Trading Assistant handler ---
     return await handleTradingWebhookLogic(update, env);
@@ -1047,21 +1037,32 @@ async function handleCallbackQuery(query, env) {
 
 
 // =================================================================
-// --- 7. WORKER EXPORT (Combined Entry Point) ---
+// --- 7. WORKER EXPORT (FIXED Scheduled Task Logic) ---
 // =================================================================
 
 async function handleScheduledTasks(env) {
-    // 1. Trading Assistant Daily Content Post
-    const postContent = await generateScheduledContent(env); 
-    if (postContent) {
-        const success = await sendTelegramMessage(postContent);
-        const today = new Date().toISOString().slice(0, 10);
-        if (!success) {
-            await sendTelegramReplyToOwner(`❌ Scheduled Daily Post එක අද දින (${today}) යැවීම අසාර්ථක විය. (Check logs)`);
+    const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
+    const postKey = `daily_post_status:${today}`;
+    const postStatus = await readTradingKV(env, postKey);
+
+    // 1. Trading Assistant Daily Content Post (FIXED DUPLICATION)
+    if (postStatus !== 'POSTED') {
+        const postContent = await generateScheduledContent(env); 
+        if (postContent) {
+            const success = await sendTelegramMessage(postContent);
+            if (success) {
+                // FIX: Write status with TTL only on success
+                await writeTradingKV(env, postKey, 'POSTED', { expirationTtl: 86400 }); // Expires in 24 hours
+                console.log(`Trading: Daily post successfully sent for ${today}.`);
+            } else {
+                await sendTelegramReplyToOwner(`❌ Scheduled Daily Post එක අද දින (${today}) යැවීම අසාර්ථක විය. (Check logs)`);
+            }
         }
+    } else {
+        console.info(`Trading: Daily post already sent for ${today}. Skipping.`);
     }
     
-    // 2. Forex News Fetch and Post
+    // 2. Forex News Fetch and Post (Uses fixed internal logic)
     await fetchForexNews(env);
 }
 
@@ -1073,17 +1074,23 @@ export default {
     async fetch(request, env, ctx) {
         try {
             const url = new URL(request.url);
-
+            
             // Manual triggers for both bots
             if (url.pathname === '/trigger-forex') {
                 await fetchForexNews(env);
-                return new Response('✅ Manual Forex News Triggered Successfully.', { status: 200 });
+                return new Response('✅ Manual Forex News Triggered Successfully (Duplication Check Active).', { status: 200 });
             }
             if (url.pathname === '/trigger-trading') {
+                const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
+                const postKey = `daily_post_status:${today}`;
+
                 const postContent = await generateScheduledContent(env);
                  if (postContent) {
                     const success = await sendTelegramMessage(postContent); 
-                    if (success) { return new Response('✅ Manual Trading Post Triggered Successfully.', { status: 200 }); }
+                    if (success) { 
+                        await writeTradingKV(env, postKey, 'POSTED', { expirationTtl: 86400 }); 
+                        return new Response('✅ Manual Trading Post Triggered Successfully (Marked as Posted).', { status: 200 }); 
+                    }
                     return new Response('❌ Manual Trading Post Failed to Send to Telegram. (Check logs)', { status: 500 });
                  }
                  return new Response('❌ Manual Trading Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
