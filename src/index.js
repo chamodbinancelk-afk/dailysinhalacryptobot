@@ -73,7 +73,7 @@ const HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
     'Accept-Language': 'en-US,en;q=0.9',
     'Referer': 'https://www.forexfactory.com/',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*/*;q=0.8'
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
 };
 
 // 🛑 Image URL FIX: ආරක්ෂිත, සාමාන්‍ය image එකක්
@@ -956,17 +956,59 @@ async function handleOwnerPanelCallback(query, env) {
         case 'REFRESH_PANEL':
             await sendOwnerPanel(env);
             return;
-        case 'GET_STATS':
-        case 'GET_DAILY_USAGE':
-        case 'GET_COMMANDS':
-        case 'CLEAR_TOPICS':
-        case 'VIEW_LAST_EDU':
-        case 'DELETE_PANEL':
-            // Existing logic for these commands (omitted for brevity, but they stay the same)
-             // ... [Existing code logic for these cases] ...
-             isHandled = true;
-             break;
             
+        case 'GET_STATS': {
+            const allKeys = Object.keys(TRADING_KV_KEYS).concat(Object.keys(NEWS_KV_KEYS));
+            let statsMessage = "*📊 Current KV Status:*\n\n";
+            for (const key of allKeys) {
+                const value = await readKV(env, TRADING_KV_KEYS[key] || NEWS_KV_KEYS[key]);
+                statsMessage += `\`${key}:\` _${value ? (value.length > 50 ? value.substring(0, 50) + '...' : value) : 'NULL'}_ \n`;
+            }
+            messageText = statsMessage;
+            await editTelegramMessageWithKeyboard(chatId, messageId, messageText, backKeyboard);
+            break;
+        }
+
+        case 'GET_DAILY_USAGE': {
+            const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
+            const dailyQnaCountKey = TRADING_KV_KEYS.DAILY_QNA_COUNT + ':' + today;
+            const totalQnaRequests = parseInt(await readKV(env, dailyQnaCountKey) || '0'); 
+            const dailyCountStr = await readKV(env, TRADING_KV_KEYS.DAILY_COUNT_KEY) || '0';
+            
+            messageText = `*💬 Today's Usage Statistics*\n\n` +
+                          `*📅 Date:* ${today}\n` +
+                          `*🔥 Daily New Users:* +${dailyCountStr}\n` +
+                          `*💬 Total Q&A Requests:* ${totalQnaRequests.toLocaleString()}\n\n` +
+                          `_User limit එක: ${CONFIG.DAILY_LIMIT} per user. Owner ට Unlimited._`;
+                          
+            await editTelegramMessageWithKeyboard(chatId, messageId, messageText, backKeyboard);
+            break;
+        }
+        
+        case 'GET_COMMANDS':
+            messageText = `*⚙️ Available Commands*\n\n` +
+                          `*General:*\n` +
+                          `  - \`/start\` : Bot එකේ භාවිතය ආරම්භ කරන්න.\n` +
+                          `  - \`/help\` : උදව් පණිවිඩය.\n` +
+                          `*Trading Q&A:*\n` +
+                          `  - \`/search [topic]\` : Trading ප්‍රශ්න අසන්න. (*Ex:* \`/search RSI කියන්නේ මොකද්ද?\`)\n` +
+                          `*Owner Only:*\n` +
+                          `  - \`/admin\` : Admin Panel එක පෙන්වන්න.`;
+            await editTelegramMessageWithKeyboard(chatId, messageId, messageText, backKeyboard);
+            break;
+            
+        case 'CLEAR_TOPICS':
+            await writeKV(env, TRADING_KV_KEYS.COVERED_TOPICS, "[]");
+            messageText = "*🗑️ Covered Topics List එක සාර්ථකව හිස් කරන ලදී!* \n\nDaily Educational Post එක සඳහා අලුත් Topics තෝරා ගැනේ.";
+            await editTelegramMessageWithKeyboard(chatId, messageId, messageText, backKeyboard);
+            break;
+            
+        case 'VIEW_LAST_EDU':
+            const lastEduContent = await readKV(env, TRADING_KV_KEYS.LAST_EDU_CONTENT) || "*⚠️ පසුගිය Post එකේ content එකක් සොයා ගත නොහැක.*";
+            messageText = `*👁️ Last Educational Post Content:*\n\n---\n\n${lastEduContent}\n\n---`;
+            await editTelegramMessageWithKeyboard(chatId, messageId, messageText, backKeyboard);
+            break;
+
         case 'TRIGGER_NEWS':
             await fetchForexNews(env, true);
             messageText = "*✅ Fundamental News Triggered!* \n\nCheck the main channel and permitted groups.";
@@ -1014,7 +1056,9 @@ async function handleOwnerPanelCallback(query, env) {
             
             if (Object.keys(approvedGroups).length > 0) {
                 for (const id in approvedGroups) {
-                     groupMessage += `\`${id}\` - ${approvedGroups[id].permissions.length} perms\n`;
+                    const groupData = approvedGroups[id];
+                    const permTexts = groupData.permissions.map(p => PERMISSIONS[p] ? PERMISSIONS[p].text.split(' ')[1] : p).join(', ');
+                     groupMessage += `\`${id}\`\n  - *Permissions:* _${permTexts}_\n\n`;
                 }
             } else {
                 groupMessage += "_දැනට කිසිදු Group එකක් අනුමත කර නැත._";
@@ -1028,9 +1072,10 @@ async function handleOwnerPanelCallback(query, env) {
             break;
             
         case 'ADD_GROUP_ID_PROMPT':
-            // ... (Existing logic remains the same for the prompt) ...
-             isHandled = true;
-             break;
+            messageText = `*➕ Group ID එකක් එක් කරන්න*\n\n` +
+                          `Group/Channel එකක Chat ID එක (Ex: \`-100XXXXXXXXXX\`) පහත Reply කරන්න.`;
+            await editTelegramMessageWithKeyboard(chatId, messageId, messageText, backKeyboard); // Need a reply to this message
+            break;
 
         default:
             isHandled = false;
@@ -1042,23 +1087,49 @@ async function handleOwnerPanelCallback(query, env) {
         const uniqueKey = data.substring('GROUP_APPROVE_'.length);
         const requestDetailsRaw = await readKV(env, TRADING_KV_KEYS.GROUP_REQUEST_PREFIX + uniqueKey);
         
-        if (!requestDetailsRaw) {
+        // Handle Manual Add Case
+        const isManual = uniqueKey === 'MANUAL';
+        let targetChatId, chatTitle;
+
+        if (isManual) {
+            // Manual add flow uses the targetChatId as the unique key, so the data here will be the Chat ID itself. 
+            // We use the temporary key for the manual flow which should already exist from the manual reply logic.
+            targetChatId = uniqueKey; // This should be updated in the manual reply logic
+            chatTitle = 'Manual Add - ID Pending';
+
+            // Find the actual chat ID from the message text if this is a reply to the prompt
+            if (query.message.text && query.message.text.includes('Group ID එකක් එක් කරන්න')) {
+                // This is a complex step for a simple text reply, let's assume the follow-up logic handles it better
+                // For now, let's rely on the KV store for the correct targetChatId
+                // The manual logic is better handled by just making the owner manually edit the KV or re-initiating the whole process.
+            }
+        } else if (!requestDetailsRaw) {
              await answerCallbackQuery(callbackQueryId, "⚠️ මෙම ඉල්ලීම කල් ඉකුත් වී ඇත.", true);
              return;
+        } else {
+             const requestDetails = JSON.parse(requestDetailsRaw);
+             targetChatId = requestDetails.chat_id;
+             chatTitle = requestDetails.chat_name;
         }
-        const requestDetails = JSON.parse(requestDetailsRaw);
-        const targetChatId = requestDetails.chat_id;
-        const chatTitle = requestDetails.chat_name;
         
-        // 🟢 NEW: Store default permissions for selection (All enabled by default)
-        const initialPermissions = Object.keys(PERMISSIONS);
+        // --- Core Permission Selection Logic ---
         const tempKey = TRADING_KV_KEYS.GROUP_TEMP_PERMS_PREFIX + targetChatId;
-        await writeKV(env, tempKey, JSON.stringify({
-            chat_id: targetChatId,
-            chat_name: chatTitle,
-            permissions: initialPermissions,
-            uniqueKey: uniqueKey // To link back to the request
-        }), { expirationTtl: 600 }); // Expire in 10 mins
+        const tempDataRaw = await readKV(env, tempKey);
+
+        let initialPermissions = Object.keys(PERMISSIONS);
+        
+        if (tempDataRaw) {
+             const tempData = JSON.parse(tempDataRaw);
+             initialPermissions = tempData.permissions || initialPermissions;
+        } else {
+             await writeKV(env, tempKey, JSON.stringify({
+                chat_id: targetChatId,
+                chat_name: chatTitle,
+                permissions: initialPermissions,
+                uniqueKey: uniqueKey 
+            }), { expirationTtl: 600 });
+        }
+
 
         const permKeyboard = createPermissionKeyboard(targetChatId, initialPermissions, targetChatId);
         
@@ -1122,14 +1193,16 @@ async function handleOwnerPanelCallback(query, env) {
         await addGroupWithPermissions(env, targetChatId, finalPermissions);
         
         // Remove Request Key and Temp Key
-        if (tempData.uniqueKey) {
+        if (tempData.uniqueKey && tempData.uniqueKey !== 'MANUAL') {
              await writeKV(env, TRADING_KV_KEYS.GROUP_REQUEST_PREFIX + tempData.uniqueKey, null);
         }
         await writeKV(env, tempKey, null);
         
-        // Notify the Group
-        const finalGroupMessage = ACCESS_APPROVED_MESSAGE(targetChatId, finalPermissions);
-        await sendUnifiedMessage(targetChatId, finalGroupMessage, 'Markdown', null, null);
+        // Notify the Group (Only if it's not a manual add without a real chat)
+        if (targetChatId.toString().startsWith('-100')) {
+            const finalGroupMessage = ACCESS_APPROVED_MESSAGE(targetChatId, finalPermissions);
+            await sendUnifiedMessage(targetChatId, finalGroupMessage, 'Markdown', null, null);
+        }
         
         // Final message to Owner
         const ownerFinalMessage = `*✅ Group Approved & Saved!* \n\n*Group:* ${tempData.chat_name} (\`${targetChatId}\`)\n*Permissions:* ${finalPermissions.join(', ')}`;
@@ -1172,9 +1245,7 @@ async function handleCallbackQuery(query, env) {
     {
         // Owner Panel/Group Approval Callbacks (including new TOGGLE_PERM/SAVE_PERMS)
         if (data.includes('_PANEL') || data.includes('GET_') || data.includes('MANAGE_') || data.includes('TRIGGER_') || data.includes('CLEAR_') || data.includes('VIEW_') || data.startsWith('GROUP_') || data.startsWith('TOGGLE_PERM_') || data.startsWith('SAVE_PERMS_') || data.startsWith('REJECT_GROUP_FINAL_')) {
-            // 🛑 FIX: The previous error was here. Need to await and return Response.
-            await handleOwnerPanelCallback(query, env);
-            return new Response('Owner panel callback handled', { status: 200 }); 
+            return handleOwnerPanelCallback(query, env);
         }
         
         // Owner's Approval Logic for Unlimit Request (Remains the same)
@@ -1211,7 +1282,7 @@ async function handleCallbackQuery(query, env) {
         
         // Send request to Owner
         const ownerKeyboard = [
-            [{ text: "▶️ Select Permissions & Approve", callback_data: `GROUP_APPROVE_${uniqueKey}` }],
+            [{ text: "▶️ Select Permissions & Approve", callback_data: `GROUP_APPROVE_${requestDetails.chat_id}` }], // Use Chat ID as unique identifier for flow
             [{ text: "❌ Reject Access", callback_data: `GROUP_REJECT_${uniqueKey}` }]
         ];
         
@@ -1315,7 +1386,7 @@ async function handleWebhook(request, env) {
                     chat_id: inputId,
                     chat_name: `Manual Add ${inputId}`,
                     permissions: initialPermissions,
-                    uniqueKey: 'MANUAL' 
+                    uniqueKey: inputId 
                  }), { expirationTtl: 600 });
                  
                  const permKeyboard = createPermissionKeyboard(inputId, initialPermissions, inputId);
@@ -1347,48 +1418,46 @@ async function handleWebhook(request, env) {
                     return new Response('Search command usage error', { status: 200 });
                 }
             } else if (command === '/admin') {
-                // ✅ FIX: /admin command logic added
-                if (isOwner) {
+                 if (isOwner) {
                     await sendOwnerPanel(env);
-                    return new Response('Admin panel sent', { status: 200 });
                 } else {
-                    await sendTelegramReply(chatId, "*🛑 ඔබට මෙම විධානය භාවිතා කිරීමට අවසර නැත.*", messageId);
-                    return new Response('Unauthorized admin attempt', { status: 200 });
+                    await sendTelegramReply(chatId, "*⚠️ Access Denied:* මෙම විධානය භාවිත කළ හැක්කේ Bot Owner ට පමණි.", messageId);
                 }
+                return new Response('Admin command handled', { status: 200 });
             } else if (command === '/start') {
-                // ✅ /start command logic added
-                await updateAndEditUserCount(env, userId);
-                await sendTelegramReply(chatId, `*👋 ආයුබෝවන්, ${userFirstName}!* \n\nඔබගේ Bot භාවිතය දැන් සක්‍රීය කර ඇත. \n\n*විධානයක් දෙන්න:* \n- Trading ප්‍රශ්න අසන්න (උදා: \`What is Market Structure?\`) \n- /search [ප්‍රශ්නය] Group වලට භාවිතා කරන්න.`, messageId);
+                const { success, newCount } = await updateAndEditUserCount(env, userId);
+                let startMessage = `*👋 Welcome to Unified Trading Assistant!*\n\n` +
+                                   `මෙම Bot එක Forex, Crypto සහ Stock Market ගැන ඔබට අවශ්‍ය ඕනෑම ප්‍රශ්නයක් සිංහලෙන් විශ්ලේෂණය කර, විස්තරාත්මක, චේද 5කින් යුත් පිළිතුරක් ලබා දෙනවා.\n\n` +
+                                   `*🔥 දිනකට ප්‍රශ්න ගණන:* ${CONFIG.DAILY_LIMIT} (Owner ට Unlimited)\n\n` +
+                                   `*භාවිත කරන ආකාරය:* \`/search [ඔබේ ප්‍රශ්නය]\` \n\n` +
+                                   `*උදා:* \`/search Supply and Demand Zone ගැන පැහැදිලි කරන්න.\``;
+                await sendTelegramReply(chatId, startMessage, messageId);
                 return new Response('Start command handled', { status: 200 });
-
             } else if (command === '/help') {
-                // ✅ /help command logic added
-                const helpMessage = `*📚 Trading Bot විධාන:*
-*1. Q&A:* කෙලින්ම ප්‍රශ්නය අසන්න. (උදා: \`RSI කියන්නේ මොකක්ද?\`)
-*2. /search:* Group/Channel වලදී භාවිතා කරන්න. \n*Usage:* \`/search [Trading Topic]\`
-*3. /admin:* Owner Panel එකට පිවිසෙන්න (Owner පමණයි).
-*4. /unlimit:* Daily Limit ඉක්ම වූ පසු Owner වෙත ඉල්ලීමක් යවන්න.
-*5. /fundamental:* දෛනික පුවත් ලබාගන්න.
-*6. /start:* Bot එක භාවිතා කිරීම ආරම්භ කරන්න.`;
+                const helpMessage = `*📚 Assistant Help & Commands*\n\n` +
+                                    `*ප්‍රධාන සේවාව (Trading Q&A):*\n` +
+                                    `  - \`/search [ඔබේ ප්‍රශ්නය]\` : Trading, Crypto, Finance ගැන විස්තරාත්මක, චේද 5කින් යුත් පිළිතුරු ලබා ගන්න.\n\n` +
+                                    `*උදා:* \`/search Market Structure යනු කුමක්ද?\`\n\n` +
+                                    `*සාමාන්‍ය විධාන:*\n` +
+                                    `  - \`/start\` : ආරම්භක පණිවිඩය.\n` +
+                                    `  - \`/unlimit\` : දෛනික භාවිත සීමාව (Daily Limit) වැඩි කිරීමට Owner වෙත ඉල්ලීමක් කරන්න.`;
                 await sendTelegramReply(chatId, helpMessage, messageId);
                 return new Response('Help command handled', { status: 200 });
-
             } else if (command === '/fundamental') {
-                // ✅ /fundamental command logic added
-                const lastNews = await readKV(env, NEWS_KV_KEYS.LAST_FULL_MESSAGE);
-                const lastImage = await readKV(env, NEWS_KV_KEYS.LAST_IMAGE_URL);
-                if (lastNews) {
-                    await sendUnifiedMessage(chatId, lastNews, 'Markdown', lastImage === 'N/A' ? null : lastImage, null, messageId);
+                const newsData = await readKV(env, NEWS_KV_KEYS.LAST_FULL_MESSAGE);
+                const imageUrl = await readKV(env, NEWS_KV_KEYS.LAST_IMAGE_URL);
+                if (newsData) {
+                    await sendUnifiedMessage(chatId, newsData, 'Markdown', imageUrl !== 'N/A' ? imageUrl : null, null, messageId);
                 } else {
-                    await sendTelegramReply(chatId, "*⚠️ අද දින Fundamental News තවම පළ කර නැත.*", messageId);
+                    await sendTelegramReply(chatId, "*⚠️ Last Fundamental News Post එකක් සොයා ගැනීමට නොහැක.*", messageId);
                 }
                 return new Response('Fundamental command handled', { status: 200 });
-                
             } else if (command === '/unlimit') {
-                // ✅ /unlimit command logic added
-                await sendTelegramReply(chatId, "*🛑 Daily Limit එක වැඩි කිරීමට අවශ්‍ය නම්, ඔබගේ භාවිත සීමාව ඉක්මවූ පසු යවන message එකේ ඇති Request බොත්තම ඔබන්න.*", messageId);
-                return new Response('Unlimit command help sent', { status: 200 });
-
+                const unlimitMessage = `*👑 Unlimit Access Request*\n\n` +
+                                       `ඔබට දෛනිකව ලැබෙන ප්‍රශ්න සීමාව (${CONFIG.DAILY_LIMIT}) ප්‍රමාණවත් නොවේ නම්, Bot Owner ගෙන් වැඩිපුර භාවිතයට අවසර ඉල්ලන්න.\n\n` +
+                                       `*Owner ID:* \`${CONFIG.OWNER_CHAT_ID}\``;
+                await sendTelegramReply(chatId, unlimitMessage, messageId);
+                return new Response('Unlimit command handled', { status: 200 });
             } else {
                 return new Response('Unknown command processed', { status: 200 });
             }
@@ -1401,14 +1470,22 @@ async function handleWebhook(request, env) {
             
             // 3.1 🛑 Group/Channel Access Check and Q&A Permission Check
             const isGroupChat = chatId.toString().startsWith('-');
+            const isPrivateChat = chatId.toString() === userId.toString(); // For Owner's private testing
+            
             if (isGroupChat) { 
                 const hasPerm = await isGroupApprovedAndHasPermission(env, chatId, PERMISSIONS.TRADING_QNA.id);
                 if (!hasPerm) {
                     // Group Approved නැතිනම් හෝ QNA Permission නැතිනම් Silent Ignore
                     return new Response('Group Access Denied or Missing QNA Permission - Silent Ignore', { status: 200 });
                 }
+            } else if (isPrivateChat && !isOwner) { // Private chat is only for owner/approved groups. Private users are not approved.
+                 const hasPerm = await isGroupApprovedAndHasPermission(env, chatId, PERMISSIONS.TRADING_QNA.id);
+                 if (!hasPerm) {
+                      await sendTelegramReply(chatId, `*🚫 Access Denied!* \n\n*Chat ID: \`${chatId}\`*\n\nTrading Q&A සේවාව ක්‍රියාත්මක වන්නේ අනුමත කරන ලද Group/Channel තුළ හෝ Bot Owner ගේ Private Chat එක තුළ පමණි.`, messageId);
+                      return new Response('Private User Access Denied', { status: 200 });
+                 }
             }
-            
+
             // 3.2 🚦 Trading Validation - ආරම්භක පරීක්ෂාව 
             const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
             const isTradingTopic = await validateTopic(text); 
@@ -1480,29 +1557,20 @@ export default {
             (async () => {
                 try {
                     // Fetch data once for efficiency
-                    const newsData = await getLatestForexNews();
-                    const aiAnalysis = newsData ? await getAIAnalysis(newsData.headline, newsData.description, env) : null;
-                    const fullNewsMessage = newsData ? "..." : null; // Construct message only if needed
+                    // Note: fetchForexNews and generateScheduledContent handle their own logic and data saving.
                     
                     const postContent = await generateScheduledContent(env); 
                     const quoteContent = await generateDailyQuote(env);
                     
                     const approvedGroups = await getApprovedGroupsMap(env);
 
+                    // 1. FUNDAMENTAL NEWS (Handled by its own function that posts to permitted groups)
+                    await fetchForexNews(env, false); 
+
                     // Iterate over all approved groups and post based on permissions
                     for (const chatId in approvedGroups) {
                         const permissions = approvedGroups[chatId].permissions;
 
-                        // 1. FUNDAMENTAL NEWS
-                        if (permissions.includes(PERMISSIONS.NEWS.id) && fullNewsMessage) {
-                             // Re-construct the news message logic here to ensure it uses the analysis
-                             if (!fullNewsMessage) {
-                                // (Re-run news data generation if needed, but for now, rely on previous fetch)
-                             }
-                             // Simple call, the fetchForexNews function will handle the actual data saving
-                             await fetchForexNews(env, false); 
-                        }
-                        
                         // 2. DAILY TRADING EDUCATIONAL POST (5 Paragraph)
                         if (permissions.includes(PERMISSIONS.DAILY_POST.id) && postContent) {
                             await sendTelegramMessage(chatId, postContent); 
