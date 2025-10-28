@@ -1387,6 +1387,7 @@ async function handleCallbackQuery(query, env) {
 
 async function handleWebhook(request, env) {
     try {
+        // 🛑 Webhook body එක JSON ලෙස ලබා ගැනීමට උත්සාහ කිරීම
         const update = await request.json();
         
         if (update && update.callback_query) {
@@ -1622,13 +1623,14 @@ async function handleWebhook(request, env) {
     } catch (e) {
         console.error("Critical Webhook Error:", e.stack);
         await sendTelegramReplyToOwner(`🚨 CRITICAL WEBHOOK ERROR: ${e.message}\nStack: ${e.stack}`);
-        return new Response('Internal Server Error', { status: 500 });
+        // මෙම catch block එක තුළින් Response එකක් return කළ යුතුය.
+        return new Response('Internal Server Error', { status: 500 }); 
     }
 }
 
 
 // =================================================================
-// --- 9. WORKER EXPORT (PERMISSION ENFORCEMENT) ---
+// --- 9. WORKER EXPORT (FINAL FIX FOR UNCAUGHT PROMISE ERROR) ---
 // =================================================================
 
 export default {
@@ -1692,7 +1694,14 @@ export default {
         }
         
         if (request.method === 'POST') {
-            return handleWebhook(request, env);
+            // 🛑 CRITICAL FIX: handleWebhook ඇමතුම try/catch එකකින් ආරක්ෂා කිරීම
+            try {
+                return await handleWebhook(request, env);
+            } catch (error) {
+                console.error("Fetch/Webhook Post-Call Error (Uncaught):", error.stack);
+                // Worker එක සම්පූර්ණයෙන්ම කඩා වැටීම වැලැක්වීමට 500 Response එකක් අනිවාර්යයෙන්ම return කරයි.
+                return new Response('Internal Webhook Error - Uncaught Exception', { status: 500 });
+            }
         }
         
         return new Response('Unified Trading Bot Worker V9 (Fixed) running. All features & commands are integrated and fixed.', { status: 200 });
