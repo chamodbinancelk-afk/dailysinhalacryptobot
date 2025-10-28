@@ -1204,13 +1204,20 @@ async function handleCallbackQuery(query, env) {
     const messageId = query.message.message_id;
 
     // 1. Owner Panel Callbacks 
+    // --- FIX: handleCallbackQuery function එක තුළ මෙම කොටස යොදන්න ---
+    // 1. Owner Panel Callbacks 
     if (userId.toString() === CONFIG.OWNER_CHAT_ID.toString()) 
     {
         // Owner Panel/Group Approval Callbacks (including new TOGGLE_PERM/SAVE_PERMS)
         if (data.includes('_PANEL') || data.includes('GET_') || data.includes('MANAGE_') || data.includes('TRIGGER_') || data.includes('CLEAR_') || data.includes('VIEW_') || data.startsWith('GROUP_') || data.startsWith('TOGGLE_PERM_') || data.startsWith('SAVE_PERMS_') || data.startsWith('REJECT_GROUP_FINAL_')) {
-            await handleOwnerPanelCallback(query, env); // Call the async function
-            return new Response('Owner Panel Callback Handled', { status: 200 }); // **🛑 FIX: Ensure a Response is returned after the panel logic**
+            
+            // ✅ නිවැරදි කිරීම: await කර, ඉන්පසු Response එක return කිරීම
+            await handleOwnerPanelCallback(query, env); 
+            return new Response('Owner panel callback handled', { status: 200 }); // Cloudflare වෙත සාර්ථක බව දැනුම් දීම
         }
+        
+        // ... (අනෙකුත් Owner Logic) ...
+    }
         
         // Owner's Approval Logic for Unlimit Request (Remains the same)
         if (data.startsWith('APPROVE_UNLIMIT_') || data.startsWith('REJECT_UNLIMIT_')) {
