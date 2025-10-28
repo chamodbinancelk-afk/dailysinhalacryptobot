@@ -1,86 +1,91 @@
 // group_management.js
 
-import { TRADING_KV_KEYS, PERMISSIONS } from './config.js';
+import { readKV, writeKV } from './telegram.js'; 
+import { CONFIG, TRADING_KV_KEYS, PERMISSIONS } from './config.js';
+import moment from 'moment-timezone'; 
 
-// --- In-memory State Simulation for KV Storage ---
-// Node.js Bot නැවත ආරම්භ කරන විට මෙම දත්ත නැති වී යයි!
-// ස්ථිර ගබඩාවක් අවශ්‍ය නම් File System හෝ DB එකක් යොදන්න.
+// -------------------------------------------------------------
+// ID GENERATION & UTILITIES (Exported)
+// -------------------------------------------------------------
 
-const globalState = {
-    [TRADING_KV_KEYS.APPROVED_GROUPS]: {},
-    // ... [other keys from TRADING_KV_KEYS will be stored here]
-    'usage:2025-10-28:-123456': '1', // Example usage
-};
-
-
-// --- Simplified KV Utilities (In-Memory) ---
-
-export function readKV(key, type = 'text') {
-    const value = globalState[key];
-    if (value === undefined || value === null) return null;
-    
-    if (type === 'json') {
-        try {
-            return JSON.parse(value);
-        } catch (e) {
-            return null;
-        }
+export function generateRandomId(length) {
+    let result = '';
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const charactersLength = characters.length;
+    for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() * charactersLength));
     }
-    return value;
+    return result;
 }
 
-export function writeKV(key, value, options = {}) {
-    globalState[key] = String(value);
-    // Note: Node.js in-memory simulation does not handle expirationTtl
+// -------------------------------------------------------------
+// GROUP PERMISSIONS & ACCESS
+// -------------------------------------------------------------
+
+export async function getApprovedGroupsMap(env) {
+    const groups = await readKV(env, TRADING_KV_KEYS.GROUP_PERMISSIONS);
+    return groups || {};
 }
 
-// --- Group Management Logic ---
-
-export async function getApprovedGroupsMap() {
-    const raw = readKV(TRADING_KV_KEYS.APPROVED_GROUPS, 'json');
-    return raw && typeof raw === 'object' ? raw : {};
+export async function isGroupApprovedAndHasPermission(env, chatId, permissionId) {
+    const groups = await getApprovedGroupsMap(env);
+    const groupData = groups[chatId.toString()];
+    return groupData && groupData.permissions.includes(permissionId);
 }
 
-export async function isGroupApprovedAndHasPermission(chatId, permission) {
-    const approvedGroups = await getApprovedGroupsMap();
-    const groupData = approvedGroups[chatId.toString()];
-    
-    return groupData && groupData.permissions && groupData.permissions.includes(permission);
-}
-
-export async function addGroupWithPermissions(chatId, permissions) {
-    const approvedGroups = await getApprovedGroupsMap();
-    const chatIdString = chatId.toString();
-    
-    approvedGroups[chatIdString] = {
-        permissions: permissions,
-        added_timestamp: Date.now(),
+export async function addGroupWithPermissions(env, chatId, permissionIds) {
+    const groups = await getApprovedGroupsMap(env);
+    groups[chatId.toString()] = { 
+        id: chatId.toString(), 
+        permissions: permissionIds 
     };
-    await writeKV(TRADING_KV_KEYS.APPROVED_GROUPS, JSON.stringify(approvedGroups));
-    return true;
+    await writeKV(env, TRADING_KV_KEYS.GROUP_PERMISSIONS, groups);
 }
 
-// --- Rate Limiting Logic (Simplified) ---
+// -------------------------------------------------------------
+// RATE LIMITING
+// -------------------------------------------------------------
 
-import moment from 'moment-timezone';
-import { CONFIG } from './config.js';
-
-export async function checkAndIncrementUsage(chatId) {
-    if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString()) {
-        return { allowed: true, count: 'Unlimited' };
-    }
-
+export async function checkAndIncrementUsage(env, chatId) {
     const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
-    const KV_KEY = `usage:${today}:${chatId}`;
+    const usageKey = TRADING_KV_KEYS.GROUP_USAGE + ':' + today;
     
-    const currentUsage = parseInt(readKV(KV_KEY) || '0');
-    const limit = CONFIG.DAILY_LIMIT;
-
-    if (currentUsage >= limit) {
-        return { allowed: false, count: currentUsage, kvKey: KV_KEY };
+    const usageMap = await readKV(env, usageKey) || {};
+    const chatUsage = usageMap[chatId.toString()] || 0;
+    
+    const allowed = chatUsage < CONFIG.DAILY_LIMIT;
+    
+    if (allowed) {
+        usageMap[chatId.toString()] = chatUsage + 1;
+        await writeKV(env, usageKey, usageMap);
+        
+        // Also increment global QNA count
+        const globalQnaCountKey = TRADING_KV_KEYS.DAILY_QNA_COUNT + ':' + today;
+        const totalQnaRequests = parseInt(await readKV(env, globalQnaCountKey) || '0');
+        await writeKV(env, globalQnaCountKey, (totalQnaRequests + 1).toString());
     }
-
-    writeKV(KV_KEY, (currentUsage + 1).toString());
     
-    return { allowed: true, count: currentUsage + 1, kvKey: KV_KEY };
+    return { allowed, count: chatUsage + 1 };
+}
+
+// -------------------------------------------------------------
+// USER TRACKING (Exported)
+// -------------------------------------------------------------
+
+export async function updateAndEditUserCount(env, userId) {
+    const userSetRaw = await readKV(env, TRADING_KV_KEYS.BOT_USER_SET, 'text');
+    let userSet = userSetRaw ? JSON.parse(userSetRaw) : [];
+
+    if (!Array.isArray(userSet)) userSet = [];
+    
+    const userIdStr = userId.toString();
+    
+    if (!userSet.includes(userIdStr)) {
+        userSet.push(userIdStr);
+        await writeKV(env, TRADING_KV_KEYS.BOT_USER_SET, userSet);
+
+        // Increment daily count
+        const dailyCount = parseInt(await readKV(env, TRADING_KV_KEYS.DAILY_COUNT_KEY) || '0');
+        await writeKV(env, TRADING_KV_KEYS.DAILY_COUNT_KEY, (dailyCount + 1).toString());
+    }
 }
