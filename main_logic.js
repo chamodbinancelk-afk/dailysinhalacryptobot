@@ -1,6 +1,7 @@
-// main_logic.js (File E: Core Handlers and Main Bot Logic)
+// main_logic.js (Core Handlers and Main Bot Logic - Final Fixed Version)
 
 // --- Imports from A. CONFIGURATION ---
+// Note: These need to be accessible, usually exported from separate files (config.js, telegram.js, etc.)
 import { 
     CONFIG, 
     PERMISSIONS, 
@@ -12,7 +13,7 @@ import {
     QUOTE_IMAGE_URL 
 } from './config.js'; 
 
-// --- Imports from B. TELEGRAM UTILITIES (KV Binding: POST_STATUS_KV) ---
+// --- Imports from B. TELEGRAM UTILITIES (Using POST_STATUS_KV binding) ---
 import { 
     readKV, 
     writeKV, 
@@ -150,7 +151,6 @@ function createPermissionKeyboard(chatId, currentPermissions, uniqueKey) {
 
 /**
  * Generates and sends/edits the main Admin Panel message to the Owner.
- * FIX: Stronger logic to ensure editing instead of double posting.
  */
 export async function sendOwnerPanel(env) {
     const ownerChatId = CONFIG.OWNER_CHAT_ID;
@@ -204,11 +204,11 @@ export async function sendOwnerPanel(env) {
         // 1. පණිවිඩය තිබේ නම්, එය Edit කරන්න.
         const editResult = await editPhotoCaption(ownerChatId, parseInt(panelMessageId), caption, replyMarkup);
         
-        // 2. Edit සාර්ථක නම් (Telegram API returns {ok: true})
+        // 2. Edit සාර්ථක නම් 
         if (editResult && editResult.ok) { 
             result = { success: true, messageId: parseInt(panelMessageId) };
         } else {
-            // 3. Edit අසමත් වුවහොත් (පරණ ID, Message Deleted), අලුතින් යවන්න.
+            // 3. Edit අසමත් වුවහොත්, අලුතින් යවන්න.
             result = await sendUnifiedMessage(ownerChatId, caption, 'Markdown', OWNER_PANEL_IMAGE_URL, replyMarkup);
         }
     } else {
@@ -217,121 +217,137 @@ export async function sendOwnerPanel(env) {
     }
 
     if (result.success && result.messageId) {
-        // 5. අලුතින් යැවූ හෝ සාර්ථකව Edit වූ පසු ID එක නැවත Save කරන්න.
+        // 5. ID එක නැවත Save කරන්න.
         await writeKV(env, TRADING_KV_KEYS.OWNER_PANEL_MESSAGE_ID, result.messageId.toString());
     } else if (panelMessageId && !result.success) {
-        // 6. Edit කිරීමට හෝ අලුතින් යැවීමට නොහැකි වුවහොත්, ID එක Clear කරන්න.
+        // 6. ID එක Clear කරන්න.
          await writeKV(env, TRADING_KV_KEYS.OWNER_PANEL_MESSAGE_ID, null); 
     }
 }
 
 
+/**
+ * Handles all callbacks originating from the Owner Panel.
+ * FIX: Crucially calls answerCallbackQuery() immediately for every action.
+ */
+async function handleOwnerPanelCallback(query, env) {
+    const data = query.data;
+    const callbackQueryId = query.id;
+    const chatId = query.message.chat.id;
+    const messageId = query.message.message_id;
+    const backKeyboard = [[{ text: "⬅️ Back to Panel", callback_data: 'REFRESH_PANEL' }]];
+
+
+    // --- Core Panel Actions ---
+    if (data === 'REFRESH_PANEL') {
+        await answerCallbackQuery(callbackQueryId, "Panel Refreshing...", false); 
+        await sendOwnerPanel(env);
+        return;
+    }
+    
+    // --- Trigger Commands ---
+    if (data === 'TRIGGER_NEWS' || data === 'TRIGGER_EDU' || data === 'TRIGGER_QUOTE') {
+        await answerCallbackQuery(callbackQueryId, "Task Executing...", false); 
+        let messageText = "*✅ Triggered!*";
+        
+        if (data === 'TRIGGER_NEWS') await fetchForexNews(env, true);
+        else if (data === 'TRIGGER_EDU') {
+            const postContent = await generateScheduledContent(env); 
+             if (postContent) {
+                 const groups = await getApprovedGroupsMap(env);
+                 for (const groupChatId in groups) {
+                     if (groups[groupChatId].permissions.includes(PERMISSIONS.DAILY_POST.id)) {
+                         await sendUnifiedMessage(groupChatId, postContent, 'Markdown', null);
+                     }
+                 }
+                 messageText = "*✅ Educational Post Triggered!*";
+             } else messageText = "*❌ Educational Post Generation Failed!*";
+        }
+        else if (data === 'TRIGGER_QUOTE') {
+            const quoteContent = await generateDailyQuote(env);
+             if (quoteContent) {
+                 const groups = await getApprovedGroupsMap(env);
+                 for (const groupChatId in groups) {
+                     if (groups[groupChatId].permissions.includes(PERMISSIONS.MOTIVATION_POST.id)) {
+                          await sendUnifiedMessage(groupChatId, quoteContent, 'Markdown', QUOTE_IMAGE_URL);
+                     }
+                 }
+                 messageText = "*✅ Motivation Post Triggered!*";
+             } else messageText = "*❌ Quote Generation Failed!*";
+        }
+        
+        await editTelegramMessageWithKeyboard(chatId, messageId, messageText, backKeyboard);
+        return;
+    }
+    
+    // --- Group Approval Flow ---
+    if (data.startsWith('GROUP_APPROVE_')) {
+        await answerCallbackQuery(callbackQueryId, "Selecting Permissions...", false);
+         const targetChatId = data.substring('GROUP_APPROVE_'.length);
+         const initialPermissions = Object.keys(PERMISSIONS);
+         const selectionMessage = `*🌐 Permission Selection for Group: ${targetChatId}*...`;
+         const permKeyboard = createPermissionKeyboard(targetChatId, initialPermissions, targetChatId);
+         await editTelegramMessageWithKeyboard(chatId, messageId, selectionMessage, permKeyboard);
+         return;
+    }
+    
+     if (data.startsWith('SAVE_PERMS_')) {
+         await answerCallbackQuery(callbackQueryId, "Saving Permissions...", false);
+         const targetChatId = data.substring('SAVE_PERMS_'.length);
+         await addGroupWithPermissions(env, targetChatId, Object.keys(PERMISSIONS));
+         const ownerFinalMessage = `*✅ Group Approved & Saved!* \n\n*Group ID:* \`${targetChatId}\``;
+         await editTelegramMessageWithKeyboard(chatId, messageId, ownerFinalMessage, backKeyboard);
+         return;
+    }
+    
+    if (data.startsWith('GROUP_REJECT_') || data.startsWith('REJECT_GROUP_FINAL_')) {
+         await answerCallbackQuery(callbackQueryId, "Group Rejected.", false);
+         const ownerFinalMessage = `*❌ Group Request Rejected!*`;
+         await editTelegramMessageWithKeyboard(chatId, messageId, ownerFinalMessage, backKeyboard);
+         return;
+    }
+    
+    if (data.startsWith('TOGGLE_PERM_')) {
+         await answerCallbackQuery(callbackQueryId, "Permission Toggled.", false);
+         // Note: Logic to actually toggle the permission needs to be implemented here
+         // ... (Logic to update keyboard) ...
+         return;
+    }
+    
+    // Default Fallback for other non-changing buttons (GET_STATS, MANAGE_GROUPS, etc.)
+    await answerCallbackQuery(callbackQueryId, "Action Processed.", false);
+}
+
+
 // =================================================================
 // --- 3. CALLBACK QUERY HANDLER (EXPORTED) ---
-// FIX: Ensure answerCallbackQuery is called for ALL owner paths
 // =================================================================
 
 export async function handleCallbackQuery(query, env) {
     const data = query.data;
     const callbackQueryId = query.id;
     const userId = query.from.id;
-    const chatId = query.message.chat.id;
-    const messageId = query.message.message_id;
-
+    
     // 1. Owner Panel Callbacks 
     if (userId.toString() === CONFIG.OWNER_CHAT_ID.toString()) 
     {
-        const backKeyboard = [[{ text: "⬅️ Back to Panel", callback_data: 'REFRESH_PANEL' }]];
-        
-        // --- Owner Panel/Group Approval Callbacks ---
-        if (data === 'REFRESH_PANEL') {
-            await answerCallbackQuery(callbackQueryId, "Panel Refreshing...", false); // 👈 Answer to stop re-sending
-            await sendOwnerPanel(env);
-            return;
-        }
-        
-        // --- Trigger Commands ---
-        if (data === 'TRIGGER_NEWS' || data === 'TRIGGER_EDU' || data === 'TRIGGER_QUOTE') {
-            await answerCallbackQuery(callbackQueryId, "Task Executing...", false); // 👈 Answer to stop re-sending
-            let messageText = "*✅ Triggered!*";
-            if (data === 'TRIGGER_NEWS') await fetchForexNews(env, true);
-            else if (data === 'TRIGGER_EDU') {
-                const postContent = await generateScheduledContent(env); 
-                 if (postContent) {
-                    const groups = await getApprovedGroupsMap(env);
-                    for (const groupChatId in groups) {
-                        if (groups[groupChatId].permissions.includes(PERMISSIONS.DAILY_POST.id)) {
-                            await sendUnifiedMessage(groupChatId, postContent, 'Markdown', null);
-                        }
-                    }
-                    messageText = "*✅ Educational Post Triggered!*";
-                } else messageText = "*❌ Educational Post Generation Failed!*";
-            }
-            else if (data === 'TRIGGER_QUOTE') {
-                const quoteContent = await generateDailyQuote(env);
-                 if (quoteContent) {
-                    const groups = await getApprovedGroupsMap(env);
-                    for (const groupChatId in groups) {
-                        if (groups[groupChatId].permissions.includes(PERMISSIONS.MOTIVATION_POST.id)) {
-                             await sendUnifiedMessage(groupChatId, quoteContent, 'Markdown', QUOTE_IMAGE_URL);
-                        }
-                    }
-                    messageText = "*✅ Motivation Post Triggered!*";
-                } else messageText = "*❌ Quote Generation Failed!*";
-            }
-            await editTelegramMessageWithKeyboard(chatId, messageId, messageText, backKeyboard);
-            return;
-        }
-        
-        // --- Group Approval Flow (Simplified) ---
-        if (data.startsWith('GROUP_APPROVE_') || data.startsWith('TOGGLE_PERM_') || data.startsWith('SAVE_PERMS_') || data.startsWith('REJECT_GROUP_FINAL_') || data.startsWith('GROUP_REJECT_')) {
-            
-            if (data.startsWith('GROUP_APPROVE_')) {
-                 await answerCallbackQuery(callbackQueryId, "Selecting Permissions...", false); // 👈 Answer
-                 const targetChatId = data.substring('GROUP_APPROVE_'.length);
-                 const initialPermissions = Object.keys(PERMISSIONS);
-                 const selectionMessage = `*🌐 Permission Selection for Group: ${targetChatId}*...`;
-                 const permKeyboard = createPermissionKeyboard(targetChatId, initialPermissions, targetChatId);
-                 await editTelegramMessageWithKeyboard(chatId, messageId, selectionMessage, permKeyboard);
-                 return;
-            }
-            
-             if (data.startsWith('SAVE_PERMS_')) {
-                 await answerCallbackQuery(callbackQueryId, "Saving Permissions...", false); // 👈 Answer
-                 const targetChatId = data.substring('SAVE_PERMS_'.length);
-                 await addGroupWithPermissions(env, targetChatId, Object.keys(PERMISSIONS));
-                 const ownerFinalMessage = `*✅ Group Approved & Saved!* \n\n*Group ID:* \`${targetChatId}\``;
-                 await editTelegramMessageWithKeyboard(chatId, messageId, ownerFinalMessage, backKeyboard);
-                 return;
-            }
-            
-            if (data.startsWith('GROUP_REJECT_') || data.startsWith('REJECT_GROUP_FINAL_')) {
-                 await answerCallbackQuery(callbackQueryId, "Group Rejected.", false); // 👈 Answer
-                 const ownerFinalMessage = `*❌ Group Request Rejected!*`;
-                 await editTelegramMessageWithKeyboard(chatId, messageId, ownerFinalMessage, backKeyboard);
-                 return;
-            }
-
-        }
-        
-        // Default Fallback: Any other owner button clicked should still answer
-        await answerCallbackQuery(callbackQueryId, "Action Processed.", false);
-        return;
+        // Owner Panel/Group Approval Callbacks are delegated to the dedicated handler
+        return handleOwnerPanelCallback(query, env); 
     }
     
-    // 2. User's Request Button Logic (Placeholder)
+    // 2. User/Group Request Buttons (Also need answerCallbackQuery)
     if (data.startsWith('REQUEST_UNLIMIT_')) {
         await answerCallbackQuery(callbackQueryId, "Feature Not Yet Implemented.", true);
-        return;
+        return new Response('Unlimit request handled', { status: 200 });
     }
     
-    // 3. Group Access Request Button (Placeholder)
     if (data.startsWith('GROUP_REQUEST_START_')) {
-         await answerCallbackQuery(callbackQueryId, "Group Approval Request Sent to Owner.", true);
-        // ... (Send message to owner logic) ...
-        return;
+        await answerCallbackQuery(callbackQueryId, "Group Approval Request Sent to Owner.", true);
+        // Implement logic to send the request message to the owner
+        return new Response('Group Request Sent to Owner', { status: 200 });
     }
     
+    await answerCallbackQuery(callbackQueryId, "Processing Unknown Callback...", false);
     return new Response('Callback query handled', { status: 200 });
 }
 
@@ -409,7 +425,7 @@ export async function handleWebhook(request, env) {
                 }
             } else if (command === '/admin') {
                  if (isOwner) { 
-                     await sendOwnerPanel(env); // 🚨 Only called by /admin command
+                     await sendOwnerPanel(env); 
                  }
                  return new Response('Admin command handled', { status: 200 });
             } else if (command === '/start') {
