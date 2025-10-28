@@ -1,4 +1,4 @@
-// telegram.js
+// telegram.js (Updated with POST_STATUS_KV binding)
 
 import { CONFIG } from './config.js'; 
 
@@ -8,8 +8,8 @@ const TELEGRAM_API_BASE = CONFIG.TELEGRAM_API_BASE;
 // KV STORAGE UTILITIES (Exported for use in other files)
 // -------------------------------------------------------------
 export async function readKV(env, key, type = 'json') {
-    // env.KV_BINDING යනු ඔබගේ wrangler.toml හි ඇති KV Binding Name එක විය යුතුය.
-    const value = await env.KV_BINDING.get(key);
+    // 🛑 UPDATED: Use env.POST_STATUS_KV
+    const value = await env.POST_STATUS_KV.get(key); 
     if (!value) return null;
     if (type === 'json') {
         try {
@@ -23,7 +23,8 @@ export async function readKV(env, key, type = 'json') {
 
 export async function writeKV(env, key, value) {
     const valueToWrite = typeof value === 'object' ? JSON.stringify(value) : value;
-    await env.KV_BINDING.put(key, valueToWrite);
+    // 🛑 UPDATED: Use env.POST_STATUS_KV
+    await env.POST_STATUS_KV.put(key, valueToWrite);
 }
 
 // -------------------------------------------------------------
@@ -67,7 +68,7 @@ export async function sendUnifiedMessage(chatId, text, parseMode = 'Markdown', p
 }
 
 // -------------------------------------------------------------
-// MESSAGE EDITING & ACTIONS (All are now exported)
+// MESSAGE EDITING & ACTIONS
 // -------------------------------------------------------------
 export async function editTelegramMessage(chatId, messageId, text, replyMarkup = null) {
     return telegramApiCall('editMessageText', {
