@@ -1,5 +1,5 @@
 // --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ - Insecure) ---
-// ⚠️ ඔබගේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
+// ⚠️ ඔබේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
 
 const CONFIG = {
     // 🛑 ඔබේ Bot Token එක
@@ -68,18 +68,17 @@ async function generateScheduledContent(coveredTopics) {
 async function generateReplyContent(userQuestion) {
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
-    // 🛑 සිංහල භාෂාව ඉල්ලීමට වෙනස් කරන ලදි
     const systemPrompt = `
         You are a detailed, expert financial and trading assistant. A user has asked you a specific question about a trading concept (e.g., Order Flow, Liquidity).
         
         Your task is to:
         1. Use the 'google_search' tool to get the most accurate and educational information for the user's question.
-        2. Generate a **DETAILED, EDUCATIONAL RESPONSE**. The response must be **5 PARAGRAPHS** long to cover the concept fully (Definition, Importance, How to Use, Examples, and Summary).
+        2. Generate a **DETAILED, EDUCATIONAL RESPONSE**. The response must be **5 PARAGRAPHS** long.
         3. Use **clear SINHALA language (සිංහල අක්ෂර / Unicode)** mixed with necessary English trading terms throughout the response.
-        4. The response must be well-formatted using Telegram's **Markdown** (bolding key terms, using lists, and emojis).
-        5. The first line of the response MUST be a clear title based on the question (e.g., "*Order Flow Concept එක මොකද්ද?*").
+        4. The response must be well-formatted using Telegram's **Markdown**.
+        5. The first line of the response MUST be a clear title based on the question.
 
-        Your final output must contain ONLY the content of the response. DO NOT include any English wrappers.
+        Your final output must contain ONLY the content of the response.
     `;
     
     try {
@@ -95,23 +94,34 @@ async function generateReplyContent(userQuestion) {
         });
 
         const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. කරුණාකර නැවත උත්සාහ කරන්න. (Content Missing)";
+        
+        // Error code check (Rate Limit, Invalid Key)
+        if (data.error) {
+             console.error("Gemini API Error:", data.error);
+             return `🛑 *API Error:* ${data.error.message || 'මට පිළිතුරු දීමට නොහැකි විය. (Gemini API දෝෂයක්)'}`;
+        }
+        
+        return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. (Content Missing)";
 
     } catch (e) {
-        return "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. (Exception)";
+        console.error("Network or Exception Error:", e);
+        return "මට එම ප්‍රශ්නයට පිළිතුරු දීමට නොහැකි විය. (Network හෝ Timeout දෝෂයක්)";
     }
 }
 
-// C. Gemini API call for Trading Topic Validation (Bug Fix Applied)
+// C. Gemini API call for Trading Topic Validation (Bug Fix V2.0 Applied)
 async function validateTopic(userQuestion) {
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
-    // 🛑 Bug Fix: සිංහල/සිංග්ලිෂ් ප්‍රශ්න හඳුනා ගැනීමට උපදෙස් ඇතුළත් කරන ලදි
+    // 🛑 Bug Fix V2.0: සිංහල උදාහරණ සමඟ වර්ගීකරණය වැඩි දියුණු කරන ලදි
     const systemPrompt = `
-        You are an AI classifier. Your task is to determine if the user's query, **WHICH MAY BE IN SINHALA OR SINGLISH**, is strictly related to **Trading, Finance, Investing, Cryptocurrency, Forex, or the Stock Market**.
+        You are an AI classifier. Your task is to determine if the user's query, **WHICH IS IN SINHALA/SINGLISH**, is strictly related to **Trading, Finance, Investing, Cryptocurrency, Forex, or the Stock Market**.
+        
+        Examples of YES: 'Candlestick', 'Order Flow', 'SL', 'TP', 'Margin', 'Bitcoin', 'Forex', 'Stock Market', 'Futures', 'Liquidity', 'RSI', 'Support', 'Resistance'.
+        Examples of Sinhala/Singlish Trading YES: 'Candlestick කියන්නේ මොකද්ද', 'Order Flow', 'Liquidity ගැන කියන්න', 'RSI', 'Money Management'.
         
         If the query is directly related to any of these financial topics, respond ONLY with the word "YES".
-        If the query is about any other subject (general knowledge, politics, sports, entertainment, personal advice, etc.), respond ONLY with the word "NO".
+        If the query is about any other subject, respond ONLY with the word "NO".
     `;
     
     try {
@@ -121,17 +131,27 @@ async function validateTopic(userQuestion) {
             body: JSON.stringify({
                 contents: [{ role: "user", parts: [{ text: userQuestion }] }],
                 systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { temperature: 0.0 } // නිශ්චිත පිළිතුරක් සඳහා 0.0 දක්වා අඩු කරන ලදි
+                generationConfig: { temperature: 0.0 } // නිශ්චිත පිළිතුරක් සඳහා 0.0
             }),
         });
 
         const data = await response.json();
+        
+        if (data.error) {
+            console.error("Validator API Error:", data.error);
+            // Validator එක Error වුණොත්, එය Trading Question එකක් ලෙස සලකන්න (Fail-safe)
+            return true; 
+        }
+        
         const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
         
+        // Final Check: පිළිතුර YES නම් පමණක් YES ලෙස සලකන්න.
         return result === 'YES';
         
     } catch (e) {
-        return true; // Error එකක් ආවොත්, ප්‍රශ්නය Trading එකක් ලෙස සලකන්න
+        console.error("Validation Network Error:", e);
+        // ජාල දෝෂයක් ආවොත්, එය Trading Question එකක් ලෙස සලකන්න (Fail-safe)
+        return true; 
     }
 }
 
@@ -232,14 +252,12 @@ function extractTopicFromPost(postText) {
 
 // H. Owner ගේ Contact Link එක ලබා දේ
 function getOwnerContactLink() {
-    // Owner ගේ නිවැරදි Telegram Username එක: Mrchamo_Lk
     const ownerUsername = 'Mrchamo_Lk';
     return `https://t.me/${ownerUsername}`;
 }
 
 // I. දෛනික භාවිතය පරීක්ෂා කිරීම සහ වැඩි කිරීම
 async function checkAndIncrementUsage(env, chatId) {
-    // Owner ට සීමාවන් නැත
     if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString()) {
         return { allowed: true, count: 'Unlimited' };
     }
@@ -247,7 +265,6 @@ async function checkAndIncrementUsage(env, chatId) {
     const today = new Date().toISOString().slice(0, 10);
     const KV_KEY = `usage:${today}:${chatId}`;
 
-    // වත්මන් භාවිතය ලබා ගන්න
     const currentUsageStr = await env.POST_STATUS_KV.get(KV_KEY);
     let currentUsage = parseInt(currentUsageStr) || 0;
 
@@ -255,12 +272,10 @@ async function checkAndIncrementUsage(env, chatId) {
         return { allowed: false, count: currentUsage };
     }
 
-    // භාවිතය වැඩි කරන්න (Trading Topic එකක් නම් පමණක්)
     currentUsage += 1;
     
-    // මධ්‍යම රාත්‍රියේදී Reset වීමට expirationTtl (තත්පර වලින්) සකසන්න.
     const now = new Date();
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0); // හෙට දවසේ ආරම්භය
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0); 
     const expirationTtl = Math.max(1, Math.ceil((endOfDay.getTime() - now.getTime()) / 1000));
     
     await env.POST_STATUS_KV.put(KV_KEY, currentUsage.toString(), { expirationTtl: expirationTtl });
@@ -329,7 +344,6 @@ async function handleWebhook(request, env) {
                     const today = new Date().toISOString().slice(0, 10);
                     const KV_KEY = `usage:${today}:${targetChatId}`;
                     
-                    // KV එකෙන් එම යතුර ඉවත් කිරීම
                     await env.POST_STATUS_KV.delete(KV_KEY);
                     
                     const successMessage = `✅ *User Limit Removed!* \n\nUser ID: \`${targetChatId}\` ගේ දෛනික සීමාව (limit) අද දින සඳහා සාර්ථකව ඉවත් කරන ලදී.`;
@@ -354,7 +368,7 @@ async function handleWebhook(request, env) {
             // --- TRADING QUESTION LOGIC ---
             if (text.length > 5) {
                 
-                // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව (Singlish)
+                // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව
                 const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
                 const isTradingTopic = await validateTopic(text);
                 
@@ -364,22 +378,20 @@ async function handleWebhook(request, env) {
                     const usageResult = await checkAndIncrementUsage(env, chatId);
                     
                     if (!usageResult.allowed) {
-                        // Rate Limit ඉක්මවා ඇත්නම්
                         const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Oyata unlimited access one nam,* ownerwa contact karanna:`;
                         
                         const keyboard = [
                             [{ text: "👑 Limit Eka Ain Kara Ganna (Contact Owner)", url: getOwnerContactLink() }]
                         ];
                         
-                        // Inline Button එකක් සමඟ Message එක Edit කිරීම
                         await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
                         return new Response('Rate limited with inline button', { status: 200 });
                     }
                     
-                    // 3. 🌐 Searching Status (Singlish)
+                    // 3. 🌐 Searching Status
                     await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
                     
-                    // 4. 🧠 Generation Status (Singlish)
+                    // 4. 🧠 Generation Status
                     await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
                     
                     // 5. 🔗 Final Content Generation
@@ -389,7 +401,7 @@ async function handleWebhook(request, env) {
                     await editTelegramMessage(chatId, validationMessageId, replyText);
                     
                 } else {
-                    // Not a Trading Question - Guardrail Message (Singlish)
+                    // Not a Trading Question - Guardrail Message 
                     const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
                     await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
                 }
