@@ -1,73 +1,62 @@
 // config.js
 
-import moment from 'moment-timezone';
-
-// =================================================================
-// --- 0. CONFIGURATION (Keys සහ IDs) ---
-// ⚠️ ඔබගේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
-// =================================================================
-
 export const CONFIG = {
-    // 🛑 ඔබේ Bot Token එක (මෙම Token එකෙන් Telegram API Base URL එක ගොඩනගයි)
+    // 🛑 ඔබේ Bot Token එක (ඔබගේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න)
     TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
     
-    // 🛑 ඔබේ Channel/Group Chat ID එක (පුවත් සහ Trading Posts යැවිය යුතු ප්‍රධාන ස්ථානය)
+    // 🛑 ඔබේ Channel/Group Chat ID එක
     TELEGRAM_CHAT_ID: "-1003111341307", 
     
-    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Owner ගේ Private ID එක)
+    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Owner ID)
     OWNER_CHAT_ID: "1901997764", 
     
-    // 🛑 ඔබේ අලුත්ම Gemini API Key එක
+    // 🛑 ඔබේ අලුත්ම Gemini API Key එක 
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
     
-    // Telegram API Endpoint Base URL එක (Token එක භාවිතයෙන්)
-    get TELEGRAM_API_BASE() {
-        return `https://api.telegram.org/bot${this.TELEGRAM_BOT_TOKEN}`;
-    },
+    // Telegram API Endpoint Base URL (Token එක මත සකස් වේ)
+    TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`, 
     
-    DAILY_LIMIT: 5,
+    // Timezone සහ සීමාවන්
     COLOMBO_TIMEZONE: 'Asia/Colombo',
+    DAILY_LIMIT: 5 // Daily Q&A limit per group/user
 };
 
-// --- CONSTANTS ---
+// -------------------------------------------------------------
+// PERMISSIONS (Group-based feature access)
+// -------------------------------------------------------------
+export const PERMISSIONS = {
+    NEWS: { id: 'NEWS', text: 'Daily Forex News' },
+    DAILY_POST: { id: 'DAILY_POST', text: 'Educational Posts' },
+    MOTIVATION_POST: { id: 'MOTIVATION_POST', text: 'Daily Motivation Quote' },
+    TRADING_QNA: { id: 'TRADING_QNA', text: 'Trading Q&A Bot' },
+};
 
+// -------------------------------------------------------------
+// KV STORAGE KEYS
+// -------------------------------------------------------------
 export const TRADING_KV_KEYS = {
-    // KV Storage වෙනුවට මෙය සරල JS Object එකක භාවිත කළ හැක.
-    APPROVED_GROUPS: 'APPROVED_GROUPS_MAP', // Group Permissions Map
-    // ... අනෙකුත් Keys
-    DAILY_QNA_COUNT: 'DAILY_QNA_COUNT', 
+    BOT_USER_SET: 'BOT_USER_SET',
+    DAILY_COUNT_KEY: 'DAILY_COUNT',
+    DAILY_QNA_COUNT: 'DAILY_QNA_COUNT',
+    OWNER_PANEL_MESSAGE_ID: 'OWNER_PANEL_MESSAGE_ID',
     LAST_TRADING_TOPIC: 'LAST_TRADING_TOPIC', 
-    LAST_EDU_CONTENT: 'LAST_EDU_CONTENT', 
+    LAST_QUOTE_TOPIC: 'LAST_QUOTE_TOPIC',
+    GROUP_PERMISSIONS: 'GROUP_PERMISSIONS', 
+    GROUP_USAGE: 'GROUP_USAGE', 
 };
 
 export const NEWS_KV_KEYS = {
-    LAST_HEADLINE: 'news_last_forex_headline', 
+    LAST_HEADLINE: 'LAST_NEWS_HEADLINE',
+    LAST_FULL_MESSAGE: 'LAST_NEWS_FULL_MESSAGE',
+    LAST_IMAGE_URL: 'LAST_NEWS_IMAGE_URL',
 };
 
-export const PERMISSIONS = {
-    NEWS: { id: 'NEWS', text: '📰 Fundamental News' },
-    DAILY_POST: { id: 'DAILY_POST', text: '📚 Daily Educational Post' },
-    MOTIVATION_POST: { id: 'MOTIVATION_POST', text: '🔥 Daily Motivation Post' },
-    TRADING_QNA: { id: 'TRADING_QNA', text: '💬 Trading Q&A (/search)' }
-};
+// -------------------------------------------------------------
+// CONSTANTS & MESSAGE TEMPLATES (All are now exported)
+// -------------------------------------------------------------
+export const OWNER_PANEL_IMAGE_URL = "https://i.imgur.com/admin_panel_image.png"; 
+export const QUOTE_IMAGE_URL = "https://i.imgur.com/motivational_quote_image.png"; 
 
-export const FF_NEWS_URL = "https://www.forexfactory.com/news";
-export const HEADERS = { 
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
-};
-
-// අනෙකුත් Utility Functions
-export function escapeMarkdown(text) {
-    if (!text) return "";
-    return text.replace(/([_*`])/g, '\\$1');
-}
-
-export function generateRandomId(length) {
-    let result = '';
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    const charactersLength = characters.length;
-    for (let i = 0; i < length; i++) {
-        result += characters.charAt(Math.floor(Math.random() * charactersLength));
-    }
-    return result;
-}
+// Message Templates (Functions)
+export const ACCESS_DENIED_MESSAGE = (chatId) => `⚠️ *Access Denied!* ඔබගේ සමූහය/නාලිකාව (${chatId}) තවමත් පරිපාලක විසින් අනුමත කර නොමැත. කරුණාකර අනුමැතිය ඉල්ලා සිටින්න.`; 
+export const ACCESS_APPROVED_MESSAGE = (chatId, perms) => `✅ *Access Approved!* Bot is now active in your Group/Channel (${chatId}). Allowed features: ${perms.join(', ')}.`;
