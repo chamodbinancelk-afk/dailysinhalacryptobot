@@ -1,5 +1,5 @@
 name = "dailysinhalacryptobot"
-main = "src/index.js"
+main = "index.js"
 compatibility_date = "2025-10-17"
 
 # KV Namespace Binding මෙතැනින් ඉවත් කර ඇත. 
