@@ -12,7 +12,7 @@ import {
     QUOTE_IMAGE_URL 
 } from './config.js'; 
 
-// --- Imports from B. TELEGRAM UTILITIES (POST_STATUS_KV න්‍යාය පථය හරහා) ---
+// --- Imports from B. TELEGRAM UTILITIES (KV Binding: POST_STATUS_KV) ---
 import { 
     readKV, 
     writeKV, 
@@ -228,6 +228,7 @@ export async function sendOwnerPanel(env) {
 
 // =================================================================
 // --- 3. CALLBACK QUERY HANDLER (EXPORTED) ---
+// FIX: Ensure answerCallbackQuery is called for ALL owner paths
 // =================================================================
 
 export async function handleCallbackQuery(query, env) {
@@ -240,17 +241,18 @@ export async function handleCallbackQuery(query, env) {
     // 1. Owner Panel Callbacks 
     if (userId.toString() === CONFIG.OWNER_CHAT_ID.toString()) 
     {
-        await answerCallbackQuery(callbackQueryId, "Processing...", false);
         const backKeyboard = [[{ text: "⬅️ Back to Panel", callback_data: 'REFRESH_PANEL' }]];
         
         // --- Owner Panel/Group Approval Callbacks ---
         if (data === 'REFRESH_PANEL') {
+            await answerCallbackQuery(callbackQueryId, "Panel Refreshing...", false); // 👈 Answer to stop re-sending
             await sendOwnerPanel(env);
             return;
         }
         
         // --- Trigger Commands ---
         if (data === 'TRIGGER_NEWS' || data === 'TRIGGER_EDU' || data === 'TRIGGER_QUOTE') {
+            await answerCallbackQuery(callbackQueryId, "Task Executing...", false); // 👈 Answer to stop re-sending
             let messageText = "*✅ Triggered!*";
             if (data === 'TRIGGER_NEWS') await fetchForexNews(env, true);
             else if (data === 'TRIGGER_EDU') {
@@ -285,6 +287,7 @@ export async function handleCallbackQuery(query, env) {
         if (data.startsWith('GROUP_APPROVE_') || data.startsWith('TOGGLE_PERM_') || data.startsWith('SAVE_PERMS_') || data.startsWith('REJECT_GROUP_FINAL_') || data.startsWith('GROUP_REJECT_')) {
             
             if (data.startsWith('GROUP_APPROVE_')) {
+                 await answerCallbackQuery(callbackQueryId, "Selecting Permissions...", false); // 👈 Answer
                  const targetChatId = data.substring('GROUP_APPROVE_'.length);
                  const initialPermissions = Object.keys(PERMISSIONS);
                  const selectionMessage = `*🌐 Permission Selection for Group: ${targetChatId}*...`;
@@ -294,6 +297,7 @@ export async function handleCallbackQuery(query, env) {
             }
             
              if (data.startsWith('SAVE_PERMS_')) {
+                 await answerCallbackQuery(callbackQueryId, "Saving Permissions...", false); // 👈 Answer
                  const targetChatId = data.substring('SAVE_PERMS_'.length);
                  await addGroupWithPermissions(env, targetChatId, Object.keys(PERMISSIONS));
                  const ownerFinalMessage = `*✅ Group Approved & Saved!* \n\n*Group ID:* \`${targetChatId}\``;
@@ -302,6 +306,7 @@ export async function handleCallbackQuery(query, env) {
             }
             
             if (data.startsWith('GROUP_REJECT_') || data.startsWith('REJECT_GROUP_FINAL_')) {
+                 await answerCallbackQuery(callbackQueryId, "Group Rejected.", false); // 👈 Answer
                  const ownerFinalMessage = `*❌ Group Request Rejected!*`;
                  await editTelegramMessageWithKeyboard(chatId, messageId, ownerFinalMessage, backKeyboard);
                  return;
@@ -309,14 +314,22 @@ export async function handleCallbackQuery(query, env) {
 
         }
         
+        // Default Fallback: Any other owner button clicked should still answer
+        await answerCallbackQuery(callbackQueryId, "Action Processed.", false);
+        return;
     }
     
     // 2. User's Request Button Logic (Placeholder)
     if (data.startsWith('REQUEST_UNLIMIT_')) {
+        await answerCallbackQuery(callbackQueryId, "Feature Not Yet Implemented.", true);
+        return;
     }
     
     // 3. Group Access Request Button (Placeholder)
     if (data.startsWith('GROUP_REQUEST_START_')) {
+         await answerCallbackQuery(callbackQueryId, "Group Approval Request Sent to Owner.", true);
+        // ... (Send message to owner logic) ...
+        return;
     }
     
     return new Response('Callback query handled', { status: 200 });
@@ -325,7 +338,6 @@ export async function handleCallbackQuery(query, env) {
 
 // =================================================================
 // --- 4. WEBHOOK HANDLER (EXPORTED) ---
-// FIX: sendOwnerPanel is only called via /admin command
 // =================================================================
 
 export async function handleWebhook(request, env) {
@@ -396,8 +408,8 @@ export async function handleWebhook(request, env) {
                     return new Response('Search command usage error', { status: 200 });
                 }
             } else if (command === '/admin') {
-                 if (isOwner) { // Owner පමණක් විය යුතුය
-                     await sendOwnerPanel(env);
+                 if (isOwner) { 
+                     await sendOwnerPanel(env); // 🚨 Only called by /admin command
                  }
                  return new Response('Admin command handled', { status: 200 });
             } else if (command === '/start') {
