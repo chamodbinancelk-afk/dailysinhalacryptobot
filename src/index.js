@@ -1387,14 +1387,17 @@ async function handleWebhook(request, env) {
                     await sendTelegramReply(chatId, "*⚠️ Usage:* `/search [Trading Topic]` \n\n*Ex:* `/search Order Block කියන්නෙ මොකද්ද?`", messageId);
                     return new Response('Search command usage error', { status: 200 });
                 }
+            } // index.js (handleWebhook function තුළ /admin command එක)
+// ...
             } else if (command === '/admin') {
-                 if (isOwner) {
-                     await sendOwnerPanel(env);
-                     return new Response('Admin panel sent', { status: 200 });
-                 } else {
-                     await sendTelegramReply(chatId, "*🛑 ඔබට මෙම විධානය භාවිතා කිරීමට අවසර නැත.*", messageId);
-                     return new Response('Unauthorized admin attempt', { status: 200 });
-                 }
+    if (isOwner) { // 👈 isOwner නිවැරදිව භාවිත කර තිබිය යුතුයි
+        await sendOwnerPanel(env);
+        return new Response('Admin panel sent', { status: 200 });
+    } else {
+        await sendTelegramReply(chatId, "*🛑 ඔබට මෙම විධානය භාවිතා කිරීමට අවසර නැත.*", messageId);
+        return new Response('Unauthorized admin attempt', { status: 200 });
+    }
+// ...
             } else if (command === '/start') {
                  const userInfo = await updateAndEditUserCount(env, userId);
                  let startMessage = `*👋 Ayubowan ${userFirstName}!* Welcome to the Automated Trading Assistant!\n\n` +
