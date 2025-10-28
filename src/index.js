@@ -453,10 +453,27 @@ async function getLatestForexNews() {
 
     const html = await resp.text();
     const $ = load(html);
+    
+    // Find the latest news item. Use the news link to identify the row.
     const newsLinkTag = $('a[href^="/news/"]').not('a[href$="/hit"]').first();
 
     if (newsLinkTag.length === 0) return null;
-
+    
+    // 1. Find the parent row element (tr)
+    const $row = newsLinkTag.closest('tr');
+    
+    // 2. Find the impact icon within that row
+    const $impactIcon = $row.find('span.impact-icon');
+    
+    let impact = 'Unknown';
+    if ($impactIcon.hasClass('impact-icon--red')) {
+        impact = 'High';
+    } else if ($impactIcon.hasClass('impact-icon--orange')) {
+        impact = 'Medium';
+    } else if ($impactIcon.hasClass('impact-icon--yellow')) {
+        impact = 'Low';
+    }
+    
     const headline = newsLinkTag.text().trim();
     const newsUrl = "https://www.forexfactory.com" + newsLinkTag.attr('href');
     
@@ -476,13 +493,21 @@ async function getLatestForexNews() {
         imgUrl = null;
     }
     
-    return { headline, newsUrl, imgUrl, description };
+    // Return impact along with other data
+    return { headline, newsUrl, imgUrl, description, impact };
 }
 
 async function fetchForexNews(env) {
     try {
         const news = await getLatestForexNews();
         if (!news) return;
+
+        // --- NEW IMPACT FILTERING LOGIC ---
+        if (news.impact !== 'High') {
+            console.info(`Forex: Skipping post. Impact is ${news.impact} (Only High Impact is required). Headline: ${news.headline}`);
+            return; // Skip posting and don't update KV if not High Impact
+        }
+        // --- END NEW IMPACT FILTERING LOGIC ---
 
         const lastHeadline = await readForexKV(env, FOREX_STATUS_KEYS.LAST_HEADLINE);
         const currentHeadline = news.headline;
@@ -505,7 +530,9 @@ async function fetchForexNews(env) {
         const newsForAI = (news.description !== CONFIG.FALLBACK_DESCRIPTION_EN) ? news.description : news.headline;
         const aiSummary = await getAISentimentSummary(news.headline, newsForAI);
         
-        const message = `<b>📰 Fundamental News (සිංහල)</b>\n\n` +
+        const impactEmoji = '🚨';
+        
+        const message = `<b>${impactEmoji} HIGH IMPACT NEWS (සිංහල) ${impactEmoji}</b>\n\n` +
                          `<b>⏰ Date & Time:</b> ${date_time}\n\n` +
                          `<b>🌎 Headline (English):</b> ${news.headline}\n\n` +
                          
@@ -519,7 +546,7 @@ async function fetchForexNews(env) {
             await writeForexKV(env, FOREX_STATUS_KEYS.LAST_HEADLINE, currentHeadline);
             await writeForexKV(env, FOREX_STATUS_KEYS.LAST_FULL_MESSAGE, message);
             await writeForexKV(env, FOREX_STATUS_KEYS.LAST_IMAGE_URL, news.imgUrl || ''); 
-            console.log(`Forex: Successfully posted and updated KV for: ${currentHeadline}`);
+            console.log(`Forex: Successfully posted High Impact news and updated KV for: ${currentHeadline}`);
         } else {
             console.error("Forex: Failed to post message, KV not updated to prevent duplication.");
         }
@@ -1090,7 +1117,7 @@ export default {
             // Manual triggers for both bots
             if (url.pathname === '/trigger-forex') {
                 await fetchForexNews(env);
-                return new Response('✅ Manual Forex News Triggered Successfully (Duplication Check Active).', { status: 200 });
+                return new Response('✅ Manual Forex News Triggered Successfully (High Impact Filter Active).', { status: 200 });
             }
             
             // MANUAL TRIGGER FOR TRADING POST (Respects Daily Limit)
@@ -1121,8 +1148,9 @@ export default {
                 
                 const statusMessage = 
                     `Bot Workers are active.\n` + 
+                    `Forex Filter Status: **High Impact Only**\n` +
                     `Last Trading Topic: ${lastTrading || 'N/A'}\n` +
-                    `Last Forex Headline: ${lastForex || 'N/A'}`;
+                    `Last Posted Forex Headline (High Impact): ${lastForex || 'N/A'}`;
                 
                 return new Response(statusMessage, { status: 200 });
             }
