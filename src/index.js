@@ -50,6 +50,7 @@ const TRADING_KV_KEYS = {
     APPROVED_GROUPS: 'APPROVED_GROUPS_MAP', 
     GROUP_REQUEST_PREFIX: 'GROUP_REQ_', 
     GROUP_TEMP_PERMS_PREFIX: 'GROUP_TEMP_PERMS_', // New key for temporary storage
+    UNLIMIT_REQUEST_PREFIX: 'UNLIMIT_REQUEST_',
 };
 
 // News Specific KV Keys
@@ -371,7 +372,6 @@ function escapeMarkdown(text) {
 }
 
 async function updateAndEditUserCount(env, userId) {
-    // (User count logic remains the same)
     const USER_SET_KEY = TRADING_KV_KEYS.BOT_USER_SET; 
     const COUNT_POST_ID_KEY = TRADING_KV_KEYS.COUNT_POST_ID; 
     const DAILY_COUNT_KEY = TRADING_KV_KEYS.DAILY_COUNT_KEY; 
@@ -460,7 +460,6 @@ async function getAIAnalysis(headline, description, env) {
  * Scrapes Forex Factory for the latest news. (Remains the same)
  */
 async function getLatestForexNews() {
-    // (Function body remains the same as in V8)
     try {
         const response = await fetch(FF_NEWS_URL, { headers: HEADERS });
         const html = await response.text();
@@ -591,7 +590,6 @@ ${aiAnalysis}
  * Generates the content for the Daily Educational Post (5 Paragraphs).
  */
 async function generateScheduledContent(env) {
-    // (Function body remains the same as in V8, uses Gemini to generate the 5-paragraph post)
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const coveredTopicsRaw = await readKV(env, TRADING_KV_KEYS.COVERED_TOPICS) || "[]";
@@ -645,7 +643,6 @@ async function generateScheduledContent(env) {
  * Generates the reply content for a user's Q&A query (5 Paragraphs FIX).
  */
 async function generateReplyContent(query) {
-    // (Function body remains the same as in V8, uses Gemini to generate the 5-paragraph reply)
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const systemPrompt = `
@@ -677,7 +674,7 @@ async function generateReplyContent(query) {
 }
 
 /**
- * Checks if the user's query is strictly a trading topic. (Remains the same)
+ * Checks if the user's query is strictly a trading topic. (FIXED FOR ROBUSTNESS)
  */
 async function validateTopic(userQuestion) {
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
@@ -701,11 +698,13 @@ async function validateTopic(userQuestion) {
         });
 
         const data = await response.json();
-        const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase();
+        const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim().toUpperCase() || '';
         
-        return result === 'YES';
+        // 🟢 FIX: Check if the content includes 'YES' and not 'NO' for robustness
+        return content.includes('YES') && !content.includes('NO');
         
     } catch (e) {
+        // Fallback: If API fails, allow the request to pass to prevent service outage
         return true; 
     }
 }
@@ -888,6 +887,7 @@ async function sendOwnerPanel(env) {
         if (editSuccess) {
             result = { success: true, messageId: parseInt(panelMessageId) };
         } else {
+            // Fallback to sending new message if edit fails (e.g., message was deleted)
             result = await sendUnifiedMessage(ownerChatId, caption, 'Markdown', OWNER_PANEL_IMAGE_URL, replyMarkup);
         }
     } else {
@@ -940,22 +940,23 @@ async function handleOwnerPanelCallback(query, env) {
     const chatId = query.message.chat.id;
     const messageId = query.message.message_id;
 
+    // The initial owner check is done in handleCallbackQuery, but a double check is fine.
     if (chatId.toString() !== CONFIG.OWNER_CHAT_ID.toString()) {
         await answerCallbackQuery(callbackQueryId, "⚠️ ඔබට මෙම විධානය භාවිතා කිරීමට අවසර නැත.", true);
-        return;
+        return; // Return is essential here
     }
 
     await answerCallbackQuery(callbackQueryId, "Processing...", false);
     const backKeyboard = [[{ text: "⬅️ Back to Panel", callback_data: 'REFRESH_PANEL' }]];
     
     let messageText = "Panel Content";
-    let isHandled = true; // Flag to indicate if the callback was one of the core panel buttons
+    let isHandled = true; 
 
     // --- Core Panel Actions ---
     switch (data) {
         case 'REFRESH_PANEL':
             await sendOwnerPanel(env);
-            return;
+            return; // Return after sending the panel
             
         case 'GET_STATS': {
             const allKeys = Object.keys(TRADING_KV_KEYS).concat(Object.keys(NEWS_KV_KEYS));
@@ -1032,7 +1033,7 @@ async function handleOwnerPanelCallback(query, env) {
             await editTelegramMessageWithKeyboard(chatId, messageId, messageText, backKeyboard);
             break;
             
-        case 'TRIGGER_QUOTE': // 🟢 NEW: Trigger Motivation Post
+        case 'TRIGGER_QUOTE': 
             const quoteContent = await generateDailyQuote(env);
             if (quoteContent) {
                  const groups = await getApprovedGroupsMap(env);
@@ -1057,8 +1058,10 @@ async function handleOwnerPanelCallback(query, env) {
             if (Object.keys(approvedGroups).length > 0) {
                 for (const id in approvedGroups) {
                     const groupData = approvedGroups[id];
+                    // Attempt to get chat title from KV or default to ID
+                    const chatTitle = groupData.chat_name || `Chat ID ${id}`; 
                     const permTexts = groupData.permissions.map(p => PERMISSIONS[p] ? PERMISSIONS[p].text.split(' ')[1] : p).join(', ');
-                     groupMessage += `\`${id}\`\n  - *Permissions:* _${permTexts}_\n\n`;
+                     groupMessage += `*Group/Channel:* _${escapeMarkdown(chatTitle)}_\n  - *ID:* \`${id}\`\n  - *Permissions:* _${permTexts}_\n\n`;
                 }
             } else {
                 groupMessage += "_දැනට කිසිදු Group එකක් අනුමත කර නැත._";
@@ -1084,31 +1087,25 @@ async function handleOwnerPanelCallback(query, env) {
     
     // --- Group Approval/Permission Flow ---
     if (data.startsWith('GROUP_APPROVE_')) {
-        const uniqueKey = data.substring('GROUP_APPROVE_'.length);
-        const requestDetailsRaw = await readKV(env, TRADING_KV_KEYS.GROUP_REQUEST_PREFIX + uniqueKey);
+        const targetChatId = data.substring('GROUP_APPROVE_'.length);
+        const requestDetailsRaw = await readKV(env, TRADING_KV_KEYS.GROUP_REQUEST_PREFIX + targetChatId);
         
-        // Handle Manual Add Case
-        const isManual = uniqueKey === 'MANUAL';
-        let targetChatId, chatTitle;
+        let chatTitle;
 
-        if (isManual) {
-            // Manual add flow uses the targetChatId as the unique key, so the data here will be the Chat ID itself. 
-            // We use the temporary key for the manual flow which should already exist from the manual reply logic.
-            targetChatId = uniqueKey; // This should be updated in the manual reply logic
-            chatTitle = 'Manual Add - ID Pending';
+        if (!requestDetailsRaw) {
+             // Try to get details from the temporary KV key for manual adds
+             const tempKey = TRADING_KV_KEYS.GROUP_TEMP_PERMS_PREFIX + targetChatId;
+             const tempDataRaw = await readKV(env, tempKey);
 
-            // Find the actual chat ID from the message text if this is a reply to the prompt
-            if (query.message.text && query.message.text.includes('Group ID එකක් එක් කරන්න')) {
-                // This is a complex step for a simple text reply, let's assume the follow-up logic handles it better
-                // For now, let's rely on the KV store for the correct targetChatId
-                // The manual logic is better handled by just making the owner manually edit the KV or re-initiating the whole process.
-            }
-        } else if (!requestDetailsRaw) {
-             await answerCallbackQuery(callbackQueryId, "⚠️ මෙම ඉල්ලීම කල් ඉකුත් වී ඇත.", true);
-             return;
+             if (tempDataRaw) {
+                 const tempData = JSON.parse(tempDataRaw);
+                 chatTitle = tempData.chat_name;
+             } else {
+                 await answerCallbackQuery(callbackQueryId, "⚠️ මෙම ඉල්ලීම කල් ඉකුත් වී ඇත.", true);
+                 return;
+             }
         } else {
              const requestDetails = JSON.parse(requestDetailsRaw);
-             targetChatId = requestDetails.chat_id;
              chatTitle = requestDetails.chat_name;
         }
         
@@ -1116,7 +1113,7 @@ async function handleOwnerPanelCallback(query, env) {
         const tempKey = TRADING_KV_KEYS.GROUP_TEMP_PERMS_PREFIX + targetChatId;
         const tempDataRaw = await readKV(env, tempKey);
 
-        let initialPermissions = Object.keys(PERMISSIONS);
+        let initialPermissions = Object.keys(PERMISSIONS).map(k => PERMISSIONS[k].id); // Default all selected
         
         if (tempDataRaw) {
              const tempData = JSON.parse(tempDataRaw);
@@ -1126,14 +1123,14 @@ async function handleOwnerPanelCallback(query, env) {
                 chat_id: targetChatId,
                 chat_name: chatTitle,
                 permissions: initialPermissions,
-                uniqueKey: uniqueKey 
+                uniqueKey: targetChatId 
             }), { expirationTtl: 600 });
         }
 
 
         const permKeyboard = createPermissionKeyboard(targetChatId, initialPermissions, targetChatId);
         
-        const selectionMessage = `*🌐 Permission Selection for Group: ${chatTitle}*\n` +
+        const selectionMessage = `*🌐 Permission Selection for Group: ${escapeMarkdown(chatTitle)}*\n` +
                                  `*Chat ID:* \`${targetChatId}\`\n\n` +
                                  `*සැ.යු:* මෙම Group එකට ලබා දිය යුතු සේවාවන් පහතින් තෝරන්න. (Selected: ${initialPermissions.length}/${Object.keys(PERMISSIONS).length})`;
         
@@ -1169,7 +1166,7 @@ async function handleOwnerPanelCallback(query, env) {
         await writeKV(env, tempKey, JSON.stringify(tempData), { expirationTtl: 600 });
         
         const permKeyboard = createPermissionKeyboard(targetChatId, currentPermissions, targetChatId);
-        const selectionMessage = `*🌐 Permission Selection for Group: ${tempData.chat_name}*\n` +
+        const selectionMessage = `*🌐 Permission Selection for Group: ${escapeMarkdown(tempData.chat_name)}*\n` +
                                  `*Chat ID:* \`${targetChatId}\`\n\n` +
                                  `*සැ.යු:* මෙම Group එකට ලබා දිය යුතු සේවාවන් පහතින් තෝරන්න. (Selected: ${currentPermissions.length}/${Object.keys(PERMISSIONS).length})`;
 
@@ -1193,9 +1190,7 @@ async function handleOwnerPanelCallback(query, env) {
         await addGroupWithPermissions(env, targetChatId, finalPermissions);
         
         // Remove Request Key and Temp Key
-        if (tempData.uniqueKey && tempData.uniqueKey !== 'MANUAL') {
-             await writeKV(env, TRADING_KV_KEYS.GROUP_REQUEST_PREFIX + tempData.uniqueKey, null);
-        }
+        await writeKV(env, TRADING_KV_KEYS.GROUP_REQUEST_PREFIX + targetChatId, null);
         await writeKV(env, tempKey, null);
         
         // Notify the Group (Only if it's not a manual add without a real chat)
@@ -1205,32 +1200,88 @@ async function handleOwnerPanelCallback(query, env) {
         }
         
         // Final message to Owner
-        const ownerFinalMessage = `*✅ Group Approved & Saved!* \n\n*Group:* ${tempData.chat_name} (\`${targetChatId}\`)\n*Permissions:* ${finalPermissions.join(', ')}`;
+        const ownerFinalMessage = `*✅ Group Approved & Saved!* \n\n*Group:* ${escapeMarkdown(tempData.chat_name)} (\`${targetChatId}\`)\n*Permissions:* ${finalPermissions.join(', ')}`;
         await editTelegramMessageWithKeyboard(chatId, messageId, ownerFinalMessage, backKeyboard);
         await answerCallbackQuery(callbackQueryId, "✅ Group Approved & Permissions Saved.", true);
         return;
     }
     
     if (data.startsWith('REJECT_GROUP_FINAL_') || data.startsWith('GROUP_REJECT_')) {
-         // ... (Logic for rejection remains the same, but clears the temp key as well)
-         const targetChatId = data.startsWith('REJECT_GROUP_FINAL_') ? data.substring('REJECT_GROUP_FINAL_'.length) : 'N/A';
+         const targetChatId = data.startsWith('REJECT_GROUP_FINAL_') ? data.substring('REJECT_GROUP_FINAL_'.length) : data.substring('GROUP_REJECT_'.length);
+         
          const tempKey = TRADING_KV_KEYS.GROUP_TEMP_PERMS_PREFIX + targetChatId;
          await writeKV(env, tempKey, null);
+         await writeKV(env, TRADING_KV_KEYS.GROUP_REQUEST_PREFIX + targetChatId, null);
          
-         const ownerFinalMessage = `*❌ Group Request Rejected!* \n\nGroup Access Denied.`;
+         const ownerFinalMessage = `*❌ Group Request Rejected!* \n\nGroup Access Denied for \`${targetChatId}\`.`;
          await editTelegramMessageWithKeyboard(chatId, messageId, ownerFinalMessage, backKeyboard);
          await answerCallbackQuery(callbackQueryId, "❌ Group Access Rejected.", true);
          return;
     }
+    
+    // --- Unlimit Approval/Rejection Logic ---
+    if (data.startsWith('APPROVE_UNLIMIT_')) {
+        const requestId = data.substring('APPROVE_UNLIMIT_'.length);
+        const requestDataRaw = await readKV(env, TRADING_KV_KEYS.UNLIMIT_REQUEST_PREFIX + requestId);
 
+        if (requestDataRaw) {
+            const requestData = JSON.parse(requestDataRaw);
+            const userChatId = requestData.userChatId;
+            const targetUserId = requestData.targetUserId;
+            
+            // Logically "approve" the user for the day by setting the limit very high.
+            const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
+            const KV_KEY = `usage:${today}:${userChatId}`; 
+            
+            const now = moment().tz(CONFIG.COLOMBO_TIMEZONE);
+            const endOfDay = moment().tz(CONFIG.COLOMBO_TIMEZONE).add(1, 'days').startOf('day'); 
+            const expirationTtl = Math.max(1, endOfDay.diff(now, 'seconds')); 
+
+            await writeKV(env, KV_KEY, '1000', { expirationTtl: expirationTtl }); 
+            
+            await writeKV(env, TRADING_KV_KEYS.UNLIMIT_REQUEST_PREFIX + requestId, null); 
+            
+            const approvalMessage = `*✅ Unlimit Access Granted!*\n\n@${requestData.userName} (ID: \`${targetUserId}\`) ගේ දෛනික සීමාව අද දින සඳහා ඉවත් කරන ලදී.`;
+            await editTelegramMessageWithKeyboard(chatId, messageId, approvalMessage, backKeyboard);
+            
+            await sendTelegramMessage(userChatId, `*🎉 Good News!* Bot Owner විසින් ඔබගේ දෛනික භාවිත සීමාව අද දින සඳහා ඉවත් කරන ලදී. ඔබට දැන් Unlimited ප්‍රශ්න ඇසිය හැක.`, 'Markdown');
+            await answerCallbackQuery(callbackQueryId, "✅ Unlimited Access Granted!", true);
+        } else {
+            await answerCallbackQuery(callbackQueryId, "⚠️ මෙම ඉල්ලීම කල් ඉකුත් වී ඇත.", true);
+        }
+        return;
+    }
+
+    if (data.startsWith('REJECT_UNLIMIT_')) {
+        const requestId = data.substring('REJECT_UNLIMIT_'.length);
+        const requestDataRaw = await readKV(env, TRADING_KV_KEYS.UNLIMIT_REQUEST_PREFIX + requestId);
+
+        if (requestDataRaw) {
+             const requestData = JSON.parse(requestDataRaw);
+             const userChatId = requestData.userChatId;
+             
+             await writeKV(env, TRADING_KV_KEYS.UNLIMIT_REQUEST_PREFIX + requestId, null); 
+             
+             const rejectionMessage = `*❌ Unlimit Access Rejected!*\n\n@${requestData.userName} ගේ ඉල්ලීම Owner විසින් ප්‍රතික්ෂේප කරන ලදී.`;
+             await editTelegramMessageWithKeyboard(chatId, messageId, rejectionMessage, backKeyboard);
+             
+             await sendTelegramMessage(userChatId, `*😢 Sorry!* Bot Owner විසින් ඔබගේ දෛනික භාවිත සීමාව ඉවත් කිරීමේ ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී. ඔබට තවදුරටත් භාවිත කළ හැක්කේ ${CONFIG.DAILY_LIMIT} වරක් පමණි.`, 'Markdown');
+             await answerCallbackQuery(callbackQueryId, "❌ Unlimit Access Rejected.", true);
+        } else {
+             await answerCallbackQuery(callbackQueryId, "⚠️ මෙම ඉල්ලීම කල් ඉකුත් වී ඇත.", true);
+        }
+        return;
+    }
+    
     if (!isHandled) {
+        // Fallback for unhandled panel buttons
         await answerCallbackQuery(callbackQueryId, "Unknown Command.", false);
     }
 }
 
 
 // =================================================================
-// --- 7. CALLBACK QUERY HANDLER (ADMIN CHECK ADDED) ---
+// --- 7. CALLBACK QUERY HANDLER (FIXED FOR RESPONSE OBJECT) ---
 // =================================================================
 
 async function handleCallbackQuery(query, env) {
@@ -1244,21 +1295,43 @@ async function handleCallbackQuery(query, env) {
     if (userId.toString() === CONFIG.OWNER_CHAT_ID.toString()) 
     {
         // Owner Panel/Group Approval Callbacks (including new TOGGLE_PERM/SAVE_PERMS)
-        if (data.includes('_PANEL') || data.includes('GET_') || data.includes('MANAGE_') || data.includes('TRIGGER_') || data.includes('CLEAR_') || data.includes('VIEW_') || data.startsWith('GROUP_') || data.startsWith('TOGGLE_PERM_') || data.startsWith('SAVE_PERMS_') || data.startsWith('REJECT_GROUP_FINAL_')) {
-            return handleOwnerPanelCallback(query, env);
-        }
-        
-        // Owner's Approval Logic for Unlimit Request (Remains the same)
-        if (data.startsWith('APPROVE_UNLIMIT_') || data.startsWith('REJECT_UNLIMIT_')) {
-            // ... (Existing unlimit logic) ...
-             return new Response('Owner Approval Logic Handled', { status: 200 });
+        if (data.includes('_PANEL') || data.includes('GET_') || data.includes('MANAGE_') || data.includes('TRIGGER_') || data.includes('CLEAR_') || data.includes('VIEW_') || data.startsWith('GROUP_') || data.startsWith('TOGGLE_PERM_') || data.startsWith('SAVE_PERMS_') || data.startsWith('REJECT_GROUP_FINAL_') || data.startsWith('APPROVE_UNLIMIT_') || data.startsWith('REJECT_UNLIMIT_')) {
+            // 🟢 FIX: Await the handler but return the required Response object immediately after.
+            await handleOwnerPanelCallback(query, env); 
+            return new Response('Owner Callback Handled', { status: 200 });
         }
     }
     
-    // 2. User's Request Button Logic (Remains the same)
+    // 2. User's Request Button Logic (User-side button logic remains the same)
     if (data.startsWith('REQUEST_UNLIMIT_')) {
-        // ... (Existing unlimit request logic) ...
-         return new Response('Unlimit request sent to owner', { status: 200 });
+        const requestId = data.substring('REQUEST_UNLIMIT_'.length);
+        const requestDataRaw = await readKV(env, TRADING_KV_KEYS.UNLIMIT_REQUEST_PREFIX + requestId);
+        
+        if (!requestDataRaw) {
+            await answerCallbackQuery(callbackQueryId, "⚠️ ඔබගේ ඉල්ලීම කල් ඉකුත් වී ඇත. කරුණාකර නැවත /unlimit විධානය යොදන්න.", true);
+            return new Response('Unlimit request expired', { status: 200 });
+        }
+        
+        const requestData = JSON.parse(requestDataRaw);
+        
+        // Notify Owner (if owner approval logic wasn't covered above)
+        const ownerKeyboard = [
+            [{ text: "✅ Approve Unlimit Access", callback_data: `APPROVE_UNLIMIT_${requestId}` }],
+            [{ text: "❌ Reject Unlimit Access", callback_data: `REJECT_UNLIMIT_${requestId}` }]
+        ];
+        
+        const ownerMessage = `*🚨 New Unlimit Access Request*\n\n` + 
+                             `*User Name:* ${requestData.userFirstName} (@${requestData.userName})\n` +
+                             `*Chat ID:* \`${requestData.userChatId}\`\n` +
+                             `*Requester ID:* \`${requestData.targetUserId}\``;
+        
+        await sendUnifiedMessage(CONFIG.OWNER_CHAT_ID, ownerMessage, 'Markdown', null, { inline_keyboard: ownerKeyboard });
+        
+        await answerCallbackQuery(callbackQueryId, "✅ ඔබගේ Unlimit Access Request එක Owner වෙත යවන ලදී. කරුණාකර අනුමැතිය ලැබෙන තෙක් රැඳී සිටින්න.", true);
+        
+        await removeInlineKeyboard(chatId, messageId);
+        
+        return new Response('Unlimit Request Sent to Owner', { status: 200 });
     }
     
     // 3. Group Access Request Button (ADMIN CHECK ADDED)
@@ -1281,9 +1354,10 @@ async function handleCallbackQuery(query, env) {
         const requestDetails = JSON.parse(requestDetailsRaw);
         
         // Send request to Owner
+        const targetChatId = requestDetails.chat_id;
         const ownerKeyboard = [
-            [{ text: "▶️ Select Permissions & Approve", callback_data: `GROUP_APPROVE_${requestDetails.chat_id}` }], // Use Chat ID as unique identifier for flow
-            [{ text: "❌ Reject Access", callback_data: `GROUP_REJECT_${uniqueKey}` }]
+            [{ text: "▶️ Select Permissions & Approve", callback_data: `GROUP_APPROVE_${targetChatId}` }], 
+            [{ text: "❌ Reject Access", callback_data: `GROUP_REJECT_${targetChatId}` }]
         ];
         
         const ownerMessage = `*🚨 New Group Access Request*\n\n` + 
@@ -1301,8 +1375,9 @@ async function handleCallbackQuery(query, env) {
         return new Response('Group Request Sent to Owner', { status: 200 });
     }
     
-    await answerCallbackQuery(callbackQueryId, "Processing...", false);
-    return new Response('Callback query handled', { status: 200 });
+    // Final Fallback (Must return a Response object)
+    await answerCallbackQuery(callbackQueryId, "Unknown Callback.", false);
+    return new Response('Callback query handled (unknown data)', { status: 200 });
 }
 
 
@@ -1335,21 +1410,23 @@ async function handleWebhook(request, env) {
                             return new Response('Bot already approved group', { status: 200 });
                         }
 
-                        const uniqueKey = generateRandomId(15);
+                        const targetChatId = chatId.toString();
                         
                         const requestKeyboard = [
-                            [{ text: "➡️ Request Owner Approval", callback_data: `GROUP_REQUEST_START_${uniqueKey}` }]
+                            [{ text: "➡️ Request Owner Approval", callback_data: `GROUP_REQUEST_START_${targetChatId}` }]
                         ];
+                        
+                        const denialMessage = ACCESS_DENIED_MESSAGE(targetChatId);
 
-                        const result = await sendUnifiedMessage(chatId, ACCESS_DENIED_MESSAGE(chatId), 'Markdown', null, { inline_keyboard: requestKeyboard });
+                        const result = await sendUnifiedMessage(chatId, denialMessage, 'Markdown', null, { inline_keyboard: requestKeyboard });
                         
                         if (result.success) {
                             const details = {
-                                chat_id: chatId,
+                                chat_id: targetChatId,
                                 chat_name: memberUpdate.chat.title || 'N/A',
                                 message_id: result.messageId,
                             };
-                            await writeKV(env, TRADING_KV_KEYS.GROUP_REQUEST_PREFIX + uniqueKey, JSON.stringify(details), { expirationTtl: 86400 }); 
+                            await writeKV(env, TRADING_KV_KEYS.GROUP_REQUEST_PREFIX + targetChatId, JSON.stringify(details), { expirationTtl: 86400 }); 
                         }
                     }
                 }
@@ -1370,28 +1447,31 @@ async function handleWebhook(request, env) {
         const isOwner = userId.toString() === CONFIG.OWNER_CHAT_ID.toString();
         
         const userFirstName = message.from.first_name || "User";
-        const userName = message.from.username ? `@${message.from.username}` : "N/A";
+        const userName = message.from.username || "N/A";
 
-        // 1. OWNER MANUAL ID REPLY LOGIC (Updated to call permission selection)
+        // 1. OWNER MANUAL ID REPLY LOGIC
         if (isOwner && message.reply_to_message && 
             message.reply_to_message.text && 
             message.reply_to_message.text.includes('Group ID එකක් එක් කරන්න')) 
         {
             const inputId = text.trim();
+            // Basic validation for group/channel ID format
             if (inputId.startsWith('-100') && inputId.length > 10) {
-                 const initialPermissions = Object.keys(PERMISSIONS);
+                 const initialPermissions = Object.keys(PERMISSIONS).map(k => PERMISSIONS[k].id);
                  const tempKey = TRADING_KV_KEYS.GROUP_TEMP_PERMS_PREFIX + inputId;
+                 
+                 const chatName = await getChatTitle(inputId);
                  
                  await writeKV(env, tempKey, JSON.stringify({
                     chat_id: inputId,
-                    chat_name: `Manual Add ${inputId}`,
+                    chat_name: chatName || `Manual Add ${inputId}`,
                     permissions: initialPermissions,
                     uniqueKey: inputId 
                  }), { expirationTtl: 600 });
                  
                  const permKeyboard = createPermissionKeyboard(inputId, initialPermissions, inputId);
                  
-                 const selectionMessage = `*🌐 Permission Selection for Group: ${inputId}*\n` +
+                 const selectionMessage = `*🌐 Permission Selection for Group: ${escapeMarkdown(chatName || `Manual Add ${inputId}`)}*\n` +
                                  `*Chat ID:* \`${inputId}\`\n\n` +
                                  `*සැ.යු:* මෙම Group එකට ලබා දිය යුතු සේවාවන් පහතින් තෝරන්න. (Selected: ${initialPermissions.length}/${Object.keys(PERMISSIONS).length})`;
                 
@@ -1414,7 +1494,7 @@ async function handleWebhook(request, env) {
                 if (args.length > 0) {
                     message.text = args.join(' '); // Treat /search query as a direct question
                 } else {
-                    await sendTelegramReply(chatId, "*⚠️ Usage:* `/search [Trading Topic]` \n\n*Ex:* `/search Order Block කියන්නෙ මොකද්ද?`", messageId);
+                    await sendTelegramReply(chatId, "*⚠️ Usage:* `/search [Trading Topic]` \n\n*Ex:* `/search RSI කියන්නේ මොකද්ද?`", messageId);
                     return new Response('Search command usage error', { status: 200 });
                 }
             } else if (command === '/admin') {
@@ -1470,7 +1550,7 @@ async function handleWebhook(request, env) {
             
             // 3.1 🛑 Group/Channel Access Check and Q&A Permission Check
             const isGroupChat = chatId.toString().startsWith('-');
-            const isPrivateChat = chatId.toString() === userId.toString(); // For Owner's private testing
+            const isPrivateChat = chatId.toString() === userId.toString(); 
             
             if (isGroupChat) { 
                 const hasPerm = await isGroupApprovedAndHasPermission(env, chatId, PERMISSIONS.TRADING_QNA.id);
@@ -1478,13 +1558,16 @@ async function handleWebhook(request, env) {
                     // Group Approved නැතිනම් හෝ QNA Permission නැතිනම් Silent Ignore
                     return new Response('Group Access Denied or Missing QNA Permission - Silent Ignore', { status: 200 });
                 }
-            } else if (isPrivateChat && !isOwner) { // Private chat is only for owner/approved groups. Private users are not approved.
+            } else if (isPrivateChat && !isOwner) { 
                  const hasPerm = await isGroupApprovedAndHasPermission(env, chatId, PERMISSIONS.TRADING_QNA.id);
                  if (!hasPerm) {
                       await sendTelegramReply(chatId, `*🚫 Access Denied!* \n\n*Chat ID: \`${chatId}\`*\n\nTrading Q&A සේවාව ක්‍රියාත්මක වන්නේ අනුමත කරන ලද Group/Channel තුළ හෝ Bot Owner ගේ Private Chat එක තුළ පමණි.`, messageId);
                       return new Response('Private User Access Denied', { status: 200 });
                  }
             }
+            
+            // If it is the Owner's private chat, bypass all permission checks (isOwner is true here)
+            // Owner is handled by the bypass in checkAndIncrementUsage
 
             // 3.2 🚦 Trading Validation - ආරම්භක පරීක්ෂාව 
             const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
@@ -1497,7 +1580,7 @@ async function handleWebhook(request, env) {
                 
                 if (!usage.allowed) {
                     // Rate Limit ඉක්මවා ඇත්නම්
-                    const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata.`;
+                    const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions ${CONFIG.DAILY_LIMIT}** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata.`;
                     
                     const requestId = generateRandomId(15);
                     const requestData = {
@@ -1557,7 +1640,6 @@ export default {
             (async () => {
                 try {
                     // Fetch data once for efficiency
-                    // Note: fetchForexNews and generateScheduledContent handle their own logic and data saving.
                     
                     const postContent = await generateScheduledContent(env); 
                     const quoteContent = await generateDailyQuote(env);
@@ -1613,6 +1695,21 @@ export default {
             return handleWebhook(request, env);
         }
         
-        return new Response('Unified Trading Bot Worker V9 running. All features & commands are integrated and fixed.', { status: 200 });
+        return new Response('Unified Trading Bot Worker V9 (Fixed) running. All features & commands are integrated and fixed.', { status: 200 });
     }
 };
+
+async function getChatTitle(chatId) {
+    const TELEGRAM_API_URL = CONFIG.TELEGRAM_API_BASE;
+    const url = `${TELEGRAM_API_URL}/getChat?chat_id=${chatId}`;
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.ok && data.result) {
+            return data.result.title || `Chat ID ${chatId}`;
+        }
+    } catch (e) {
+        // Ignore fetch errors, return default title
+    }
+    return `Chat ID ${chatId}`;
+}
