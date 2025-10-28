@@ -12,7 +12,7 @@ import {
     QUOTE_IMAGE_URL 
 } from './config.js'; 
 
-// --- Imports from B. TELEGRAM UTILITIES ---
+// --- Imports from B. TELEGRAM UTILITIES (POST_STATUS_KV න්‍යාය පථය හරහා) ---
 import { 
     readKV, 
     writeKV, 
@@ -148,6 +148,10 @@ function createPermissionKeyboard(chatId, currentPermissions, uniqueKey) {
 }
 
 
+/**
+ * Generates and sends/edits the main Admin Panel message to the Owner.
+ * FIX: Stronger logic to ensure editing instead of double posting.
+ */
 export async function sendOwnerPanel(env) {
     const ownerChatId = CONFIG.OWNER_CHAT_ID;
     const timeZone = CONFIG.COLOMBO_TIMEZONE;
@@ -197,18 +201,27 @@ export async function sendOwnerPanel(env) {
     let result = { success: false, messageId: null };
 
     if (panelMessageId) {
-        const editSuccess = await editPhotoCaption(ownerChatId, parseInt(panelMessageId), caption, replyMarkup);
-        if (editSuccess) {
+        // 1. පණිවිඩය තිබේ නම්, එය Edit කරන්න.
+        const editResult = await editPhotoCaption(ownerChatId, parseInt(panelMessageId), caption, replyMarkup);
+        
+        // 2. Edit සාර්ථක නම් (Telegram API returns {ok: true})
+        if (editResult && editResult.ok) { 
             result = { success: true, messageId: parseInt(panelMessageId) };
         } else {
+            // 3. Edit අසමත් වුවහොත් (පරණ ID, Message Deleted), අලුතින් යවන්න.
             result = await sendUnifiedMessage(ownerChatId, caption, 'Markdown', OWNER_PANEL_IMAGE_URL, replyMarkup);
         }
     } else {
+        // 4. කිසිදු ID එකක් KV එකේ නොමැති නම්, අලුතින් යවන්න.
         result = await sendUnifiedMessage(ownerChatId, caption, 'Markdown', OWNER_PANEL_IMAGE_URL, replyMarkup);
     }
 
     if (result.success && result.messageId) {
+        // 5. අලුතින් යැවූ හෝ සාර්ථකව Edit වූ පසු ID එක නැවත Save කරන්න.
         await writeKV(env, TRADING_KV_KEYS.OWNER_PANEL_MESSAGE_ID, result.messageId.toString());
+    } else if (panelMessageId && !result.success) {
+        // 6. Edit කිරීමට හෝ අලුතින් යැවීමට නොහැකි වුවහොත්, ID එක Clear කරන්න.
+         await writeKV(env, TRADING_KV_KEYS.OWNER_PANEL_MESSAGE_ID, null); 
     }
 }
 
@@ -312,6 +325,7 @@ export async function handleCallbackQuery(query, env) {
 
 // =================================================================
 // --- 4. WEBHOOK HANDLER (EXPORTED) ---
+// FIX: sendOwnerPanel is only called via /admin command
 // =================================================================
 
 export async function handleWebhook(request, env) {
@@ -382,7 +396,9 @@ export async function handleWebhook(request, env) {
                     return new Response('Search command usage error', { status: 200 });
                 }
             } else if (command === '/admin') {
-                 await sendOwnerPanel(env);
+                 if (isOwner) { // Owner පමණක් විය යුතුය
+                     await sendOwnerPanel(env);
+                 }
                  return new Response('Admin command handled', { status: 200 });
             } else if (command === '/start') {
                 await updateAndEditUserCount(env, userId);
