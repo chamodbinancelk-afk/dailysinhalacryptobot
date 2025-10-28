@@ -1,76 +1,108 @@
 // --- ES MODULE IMPORTS (Required for Cloudflare Workers) ---
-import { load } from 'cheerio';
-import moment from 'moment-timezone';
+import { load } from 'cheerio'; // For Forex Factory Scraping
+import moment from 'moment-timezone'; // For Timezone Management
 
-// =================================================================
-// --- 🔴 0. HARDCODED CONFIGURATION (UNIFIED KEYS) 🔴 ---
-// ⚠️ සියලුම අගයන් එක් Bot Token එකකට සහ Chat ID එකකට යොමු කර ඇත ⚠️
-// =================================================================
+// --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ) ---
+// ⚠️ ඔබගේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
 
 const CONFIG = {
-    // --- 🔴 UNIFIED TELEGRAM & API KEYS 🔴 ---
-    // (Trading Bot Token/Chat ID used for BOTH Trading Assistant and Forex News)
-    TRADING_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q",
-    TRADING_CHAT_ID: "-1002947156921",
-    OWNER_CHAT_ID: "1901997764",
+    // 🛑 ඔබේ Bot Token එක (trading_assistant.js එකෙන් ලබා ගත්)
+    TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
+    
+    // 🛑 ඔබේ Channel/Group Chat ID එක (පුවත් සහ Trading Posts යැවිය යුතු ප්‍රධාන ස්ථානය)
+    TELEGRAM_CHAT_ID: "-1002947156921", // trading_assistant.js එකේ ID
+    
+    // 🛑 ඔබේ පුද්ගලික Chat ID එක (Owner ගේ Private ID එක - String ලෙස තබන්න)
+    OWNER_CHAT_ID: "1901997764", 
+    
+    // 🛑 ඔබේ අලුත්ම Gemini API Key එක (trading_assistant.js එකෙන් ලබා ගත්)
     GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
     
-    // --- Forex News Config (Overridden to use Trading Bot's credentials) ---
-    FOREX_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
-    FOREX_CHAT_ID: "-1002947156921", 
-
-    // --- Trading Assistant Config:
+    // Telegram API Endpoint Base URL එක
+    TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`,
+    
+    // දිනකට උපරිම අවසර ලත් භාවිතය (Trading Q&A සඳහා)
     DAILY_LIMIT: 5,
-    COLOMBO_TIMEZONE: 'Asia/Colombo',
 
-    // --- Forex News Display/Scraping Config:
-    CHANNEL_USERNAME: 'C_F_News',
+    // සාමාජිකත්වය පරීක්ෂා කරන Channel විස්තර
+    CHANNEL_USERNAME: 'C_F_News', 
     CHANNEL_LINK_TEXT: 'C F NEWS ₿',
-    FF_NEWS_URL: "https://www.forexfactory.com/news",
-    FALLBACK_DESCRIPTION_EN: "No description found.",
-    CHANNEL_LINK_URL: `https://t.me/C_F_News`,
-
-    // Web Scraping Headers
-    HEADERS: { 
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://www.forexfactory.com/',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-    },
+    CHANNEL_LINK_URL: 'https://t.me/C_F_News', // URL එක සෘජුවම ඇතුළත් කර ඇත
+    
+    COLOMBO_TIMEZONE: 'Asia/Colombo',
 };
 
-// --- Telegram API Base URLs (Derived from Hardcoded Config) ---
-const TRADING_API_BASE = `https://api.telegram.org/bot${CONFIG.TRADING_BOT_TOKEN}`;
-const FOREX_API_BASE = `https://api.telegram.org/bot${CONFIG.FOREX_BOT_TOKEN}`; 
+// --- CONSTANTS ---
 
-// --- KV KEYS ---
-const TRADING_STATUS_KEYS = {
+// Trading Assistant KV Keys
+const TRADING_KV_KEYS = {
     COVERED_TOPICS: 'COVERED_TOPICS',
-    LAST_TRADING_TOPIC: 'LAST_TRADING_TOPIC',
     BOT_USER_SET: 'BOT_USER_SET',
     COUNT_POST_ID: 'COUNT_POST_ID',
     DAILY_COUNT_KEY: 'DAILY_USER_COUNT',
+    LAST_TRADING_TOPIC: 'LAST_TRADING_TOPIC', // for scheduled content
 };
-const FOREX_STATUS_KEYS = {
-    LAST_HEADLINE: 'last_forex_headline', 
-    LAST_FULL_MESSAGE: 'last_full_news_message', 
-    LAST_IMAGE_URL: 'last_image_url', 
+
+// News Specific KV Keys
+const NEWS_KV_KEYS = {
+    LAST_HEADLINE: 'news_last_forex_headline', // 'last_forex_headline' වෙනුවට
+    LAST_FULL_MESSAGE: 'news_last_full_news_message', // 'last_full_news_message' වෙනුවට
+    LAST_IMAGE_URL: 'news_last_image_url', // 'last_image_url' වෙනුවට
 };
+
+const FF_NEWS_URL = "https://www.forexfactory.com/news";
+const FALLBACK_DESCRIPTION_EN = "No description found.";
+const HEADERS = { 
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://www.forexfactory.com/',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+};
+const STATS_PHOTO_URL = "https://envs.sh/7R4.jpg"; // Placeholder URL for stats post
 
 
 // =================================================================
-// --- 1. TELEGRAM UTILITIES ---
+// --- 1. CORE UTILITIES (KV, Telegram, Membership) ---
 // =================================================================
 
 /**
- * Sends a message using the Unified Bot's credentials. Supports HTML parsing and photos.
+ * KV Read function (Unified) - Assumes env.POST_STATUS_KV
+ */
+async function readKV(env, key, type = 'text') {
+    try {
+        if (!env.POST_STATUS_KV) { return null; }
+        const value = await env.POST_STATUS_KV.get(key, type); 
+        return value === null || value === undefined ? null : value;
+    } catch (e) {
+        console.error(`KV Read Error (${key}):`, e);
+        return null;
+    }
+}
+
+/**
+ * KV Write function (Unified) - Assumes env.POST_STATUS_KV
+ */
+async function writeKV(env, key, value, options = {}) {
+    try {
+        if (!env.POST_STATUS_KV) { return; }
+        await env.POST_STATUS_KV.put(key, String(value), options); 
+    } catch (e) {
+        console.error(`KV Write Error (${key}):`, e);
+    }
+}
+
+
+/**
+ * Sends a message to Telegram. Supports Markdown, HTML, photos, and reply_markup.
+ * The core sender is unified to support all message types.
  */
 async function sendUnifiedMessage(chatId, message, parseMode = 'Markdown', imgUrl = null, replyMarkup = null, replyToId = null) {
-    const TELEGRAM_API_URL = TRADING_API_BASE; 
+    const TELEGRAM_API_URL = CONFIG.TELEGRAM_API_BASE; 
     
     let currentImgUrl = imgUrl; 
     let apiMethod = currentImgUrl ? 'sendPhoto' : 'sendMessage';
     let maxAttempts = 3;
+    let messageIdResult = null; 
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         let payload = { chat_id: chatId, parse_mode: parseMode };
@@ -83,7 +115,7 @@ async function sendUnifiedMessage(chatId, message, parseMode = 'Markdown', imgUr
             apiMethod = 'sendMessage'; 
         }
         
-        if (replyMarkup && apiMethod === 'sendMessage') {
+        if (replyMarkup) {
             payload.reply_markup = replyMarkup;
         }
 
@@ -100,257 +132,37 @@ async function sendUnifiedMessage(chatId, message, parseMode = 'Markdown', imgUr
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-
-            if (response.status === 429) {
-                const delay = Math.pow(2, attempt) * 1000;
-                await new Promise(resolve => setTimeout(resolve, delay));
-                continue; 
-            }
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                if (apiMethod === 'sendPhoto') {
+            const data = await response.json();
+            if (!data.ok) {
+                if (apiMethod === 'sendPhoto' && currentImgUrl && currentImgUrl.includes('forexfactory.com')) { 
                     currentImgUrl = null; 
                     apiMethod = 'sendMessage';
                     attempt = -1; // Restart loop as sendMessage
-                    console.error(`Unified: SendPhoto failed, retrying as sendMessage: ${errorText}`);
+                    console.error(`SendPhoto failed (Forex image), retrying as sendMessage: ${JSON.stringify(data)}`);
                     continue; 
                 }
-                console.error(`Unified: Telegram API Error (${apiMethod}): ${response.status} - ${errorText}`);
+                console.error(`Telegram API Error (${apiMethod}): ${data.error_code} - ${data.description}`);
                 break; 
             }
-            return true; // Success
+            messageIdResult = data.result.message_id;
+            return { success: true, messageId: messageIdResult }; 
         } catch (error) {
-            console.error("Unified: Error sending message to Telegram:", error);
+            console.error("Error sending message to Telegram:", error);
             const delay = Math.pow(2, attempt) * 1000;
             await new Promise(resolve => setTimeout(resolve, delay));
         }
     }
-    return false; 
+    return { success: false, messageId: null }; 
 }
 
-// --- Trading Assistant's Telegram Functions ---
-
-async function sendTypingAction(chatId) {
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/sendChatAction`;
-    try {
-        await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
-        });
-        return true;
-    } catch (e) { return false; }
-}
-
-async function sendTelegramReplyToOwner(text, keyboard = null) {
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/sendMessage`;
-    try {
-        const ownerChatIdString = CONFIG.OWNER_CHAT_ID.toString();
-        const body = { chat_id: ownerChatIdString, text: text, parse_mode: 'Markdown' };
-        if (keyboard) { body.reply_markup = { inline_keyboard: keyboard }; }
-        
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-        });
-        return response.ok; 
-    } catch (e) { return false; }
-}
-
-async function sendTelegramMessage(caption) {
-    // Used for scheduled posts (Markdown)
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/sendMessage`;
-    try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: CONFIG.TRADING_CHAT_ID, text: caption, parse_mode: 'Markdown' }),
-        });
-        return response.ok;
-    } catch (e) { return false; }
-}
-
-async function sendTelegramReply(chatId, text, messageId) {
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/sendMessage`;
-    try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: chatId, text: text, parse_mode: 'Markdown', reply_to_message_id: messageId 
-            }),
-        });
-        const data = await response.json();
-        return data.ok ? data.result.message_id : null; 
-    } catch (e) { return null; }
-}
-
-async function editTelegramMessage(chatId, messageId, text) {
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/editMessageText`;
-    try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, message_id: messageId, text: text, parse_mode: 'Markdown' }),
-        });
-        return response.ok;
-    } catch (e) { return false; }
-}
-
-async function editTelegramMessageWithKeyboard(chatId, messageId, text, keyboard) {
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/editMessageText`;
-    try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: chatId, message_id: messageId, text: text, parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: keyboard }
-            }),
-        });
-        return response.ok;
-    } catch (e) { return false; }
-}
-
-async function answerCallbackQuery(callbackQueryId, text, showAlert) {
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/answerCallbackQuery`;
-    try {
-        await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ callback_query_id: callbackQueryId, text: text, show_alert: showAlert }),
-        });
-        return true;
-    } catch (e) { return false; }
-}
-
-async function removeInlineKeyboard(chatId, messageId) {
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/editMessageReplyMarkup`;
-    try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: {} }),
-        });
-        return response.ok;
-    } catch (e) { return false; }
-}
-
-async function sendPhotoWithCaption(chatId, photoUrl, caption, keyboard) {
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/sendPhoto`;
-    try {
-        const body = { chat_id: chatId, photo: photoUrl, caption: caption, parse_mode: 'Markdown' };
-        if (keyboard) { body.reply_markup = { inline_keyboard: keyboard }; }
-
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-        });
-        
-        const data = await response.json();
-        return data.ok ? { success: true, messageId: data.result.message_id } : { success: false, error: data };
-    } catch (e) { return { success: false, error: e.toString() }; }
-}
-
-async function editPhotoCaption(chatId, messageId, caption) {
-    const TELEGRAM_API_ENDPOINT = `${TRADING_API_BASE}/editMessageCaption`;
-    try {
-        const response = await fetch(TELEGRAM_API_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, message_id: messageId, caption: caption, parse_mode: 'Markdown' }),
-        });
-        return response.ok;
-    } catch (e) { return false; }
-}
-
-
-// =================================================================
-// --- 2. KV UTILITIES ---
-// =================================================================
-
-async function readTradingKV(env, key) {
-    try {
-        if (!env.POST_STATUS_KV) { return null; }
-        const value = await env.POST_STATUS_KV.get(key); 
-        return value === null || value === undefined ? null : value;
-    } catch (e) {
-        console.error(`Trading KV Read Error (${key}):`, e);
-        return null;
-    }
-}
-
-async function writeTradingKV(env, key, value, options = {}) {
-    try {
-        if (!env.POST_STATUS_KV) { return; }
-        await env.POST_STATUS_KV.put(key, String(value), options); 
-    } catch (e) {
-        console.error(`Trading KV Write Error (${key}):`, e);
-    }
-}
-
-async function readForexKV(env, key) {
-    try {
-        if (!env.NEWS_STATE_KV) { return null; }
-        const value = await env.NEWS_STATE_KV.get(key); 
-        return value === null || value === undefined ? null : value;
-    } catch (e) {
-        console.error(`Forex KV Read Error (${key}):`, e);
-        return null;
-    }
-}
-
-async function writeForexKV(env, key, value) {
-    try {
-        if (!env.NEWS_STATE_KV) { return; }
-        await env.NEWS_STATE_KV.put(key, String(value)); 
-    } catch (e) {
-        console.error(`Forex KV Write Error (${key}):`, e);
-    }
-}
-
-
-// =================================================================
-// --- 3. COMMON UTILITY FUNCTIONS (AI and Generic Helpers) ---
-// =================================================================
-
-function escapeMarkdown(text) {
-    if (!text) return "";
-    return text.replace(/([_*`])/g, '\\$1');
-}
-
-function generateRandomId(length = 6) {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let result = '';
-    for (let i = 0; i < length; i++) {
-        result += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-    return result;
-}
-
-async function translateText(text) {
-    const translationApiUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=si&dt=t&q=${encodeURIComponent(text)}`;
-    try {
-        const response = await fetch(translationApiUrl);
-        const data = await response.json();
-        if (data && data[0] && Array.isArray(data[0])) {
-            return data[0].map(item => item[0]).join('');
-        }
-        throw new Error("Invalid translation response structure.");
-    } catch (e) {
-        console.error('Translation API Error. Using original text.', e);
-        return `[Translation Failed: ${text}]`;
-    }
-}
-
-// =================================================================
-// --- 4. FOREX NEWS BOT LOGIC (Remains Scheduled) ---
-// =================================================================
-
+/**
+ * Checks if a user is a member of the required channel.
+ */
 async function checkChannelMembership(userId) {
-    const TELEGRAM_API_URL = FOREX_API_BASE;
-    const CHAT_ID = CONFIG.FOREX_CHAT_ID;
+    const TELEGRAM_API_URL = CONFIG.TELEGRAM_API_BASE;
+    const CHAT_ID = CONFIG.TELEGRAM_CHAT_ID;
 
-    if (!CONFIG.FOREX_BOT_TOKEN || !CHAT_ID) return false;
+    if (!CONFIG.TELEGRAM_BOT_TOKEN || !CHAT_ID) return true; // Failsafe
 
     const url = `${TELEGRAM_API_URL}/getChatMember?chat_id=${CHAT_ID}&user_id=${userId}`;
 
@@ -367,117 +179,318 @@ async function checkChannelMembership(userId) {
         return false; 
     } catch (error) {
         console.error(`[Membership Check Error for user ${userId}]:`, error);
+        return false; 
+    }
+}
+
+// Helper for sending simple replies
+async function sendTelegramReply(chatId, text, messageId) {
+    const result = await sendUnifiedMessage(chatId, text, 'Markdown', null, null, messageId);
+    return result.messageId; 
+}
+
+// Helper for editing messages (Markdown only)
+async function editTelegramMessage(chatId, messageId, text) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
+    try {
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId, 
+                message_id: messageId, 
+                text: text,
+                parse_mode: 'Markdown'
+            }),
+        });
+        return response.ok;
+    } catch (e) {
+        return false;
+    }
+}
+// Helper for editing messages with keyboard
+async function editTelegramMessageWithKeyboard(chatId, messageId, text, keyboard) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageText`;
+    try {
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId, 
+                message_id: messageId, 
+                text: text,
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: keyboard }
+            }),
+        });
+        return response.ok;
+    } catch (e) {
+        return false;
+    }
+}
+// Helper for sending typing action
+async function sendTypingAction(chatId) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendChatAction`;
+    try {
+        await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
+        });
+        return true;
+    } catch (e) { return false; }
+}
+
+// Owner වෙත Message යැවීම සඳහා (Callback Query වෙතින් ලැබෙන)
+async function sendTelegramReplyToOwner(text, keyboard = null) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
+    try {
+        const ownerChatIdString = CONFIG.OWNER_CHAT_ID.toString();
+        
+        const body = {
+            chat_id: ownerChatIdString, 
+            text: text,
+            parse_mode: 'Markdown' 
+        };
+        if (keyboard) {
+            body.reply_markup = { inline_keyboard: keyboard };
+        }
+        
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+        const data = await response.json();
+        
+        if (!data.ok) {
+            console.error("TELEGRAM SEND ERROR (Owner Final Check):", JSON.stringify(data));
+        }
+        
+        return data.ok; 
+    } catch (e) {
+        console.error("TELEGRAM FETCH ERROR (Owner Final Check):", e);
+        return false;
+    }
+}
+async function removeInlineKeyboard(chatId, messageId) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageReplyMarkup`;
+    try {
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId, 
+                message_id: messageId, 
+                reply_markup: {} // Remove keyboard
+            }),
+        });
+        return response.ok;
+    } catch (e) {
+        return false;
+    }
+}
+async function answerCallbackQuery(callbackQueryId, text, showAlert) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/answerCallbackQuery`;
+    try {
+        await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                callback_query_id: callbackQueryId, 
+                text: text,
+                show_alert: showAlert 
+            }),
+        });
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+async function sendPhotoWithCaption(chatId, photoUrl, caption, keyboard) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendPhoto`;
+    try {
+        const body = {
+            chat_id: chatId, 
+            photo: photoUrl,
+            caption: caption,
+            parse_mode: 'Markdown'
+        };
+
+        if (keyboard) {
+            body.reply_markup = { inline_keyboard: keyboard };
+        }
+
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        
+        const data = await response.json();
+        return data.ok ? { success: true, messageId: data.result.message_id } : { success: false, error: data };
+    } catch (e) {
+        return { success: false, error: e.toString() };
+    }
+}
+
+async function editPhotoCaption(chatId, messageId, caption) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/editMessageCaption`;
+    try {
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId, 
+                message_id: messageId, 
+                caption: caption,
+                parse_mode: 'Markdown'
+            }),
+        });
+        return response.ok;
+    } catch (e) {
+        return false;
+    }
+}
+async function sendTelegramMessage(caption) {
+    const TELEGRAM_API_ENDPOINT = `${CONFIG.TELEGRAM_API_BASE}/sendMessage`;
+    try {
+        const response = await fetch(TELEGRAM_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: CONFIG.TELEGRAM_CHAT_ID, 
+                text: caption,
+                parse_mode: 'Markdown' 
+            }),
+        });
+        
+        return response.ok;
+    } catch (e) {
         return false;
     }
 }
 
+// Markdown Escape Function
+function escapeMarkdown(text) {
+    if (!text) return "";
+    return text.replace(/([_*`])/g, '\\$1');
+}
 
-async function getAISentimentSummary(headline, description) {
-    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
+// Helper function to generate a short, random ID (for KV Key)
+function generateRandomId(length = 6) {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return result;
+}
+
+
+// =================================================================
+// --- 2. FOREX NEWS LOGIC (Scraping + AI Impact Filter) ---
+// =================================================================
+
+/**
+ * Uses Gemini to determine impact, generate a short Sinhala summary, and sentiment analysis.
+ * *MODIFIED to include a filter check*
+ */
+async function getAIAnalysis(headline, description) {
+    const GEMINI_API_KEY = CONFIG.GEMINI_API_KEY;
+    const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${GEMINI_API_KEY}`;
     
-    if (!CONFIG.GEMINI_API_KEY) {
-        return "⚠️ <b>AI විශ්ලේෂණ සේවාව ක්‍රියාත්මක නොවේ (API Key නැත).</b>";
+    if (!GEMINI_API_KEY) {
+        return { impact: 'Unknown', summary: "⚠️ <b>AI විශ්ලේෂණ සේවාව ක්‍රියාත්මක නොවේ (API Key නැත).</b>", sentiment: 'Neutral' };
     }
 
-    const maxRetries = 3;
-    const initialDelay = 1000;
-
-    const systemPrompt = `Act as a world-class Forex and Crypto market fundamental analyst. Your task is to provide a very brief analysis of the following news, focusing on the sentiment (Bullish, Bearish, or Neutral) and the potential impact on the primary currency mentioned. Use Google Search to ensure the analysis is based on up-to-date market context. The final output MUST be only text in the following exact format: 
+    // --- SYSTEM PROMPT: MUST DETERMINE IMPACT FIRST ---
+    const systemPrompt = `Act as a world-class Forex and Crypto market fundamental analyst. Your task is to:
+1. **IMPACT Assessment:** Determine the impact level of the news. The impact level MUST be one of: **HIGH, MEDIUM, LOW**.
+2. **Sentiment Analysis:** Determine the sentiment (Bullish, Bearish, or Neutral).
+3. **Summary:** Provide a very brief analysis (max 2 sentences) in **Sinhala**.
+4. **Format:** The final output MUST be only text in the following exact format: 
+Impact: [HIGH/MEDIUM/LOW]
 Sentiment: [Bullish/Bearish/Neutral]
-Sinhala Summary: [Sinhala translation of the analysis (very brief, max 2 sentences). Start this summary directly with a capital letter.]`;
+Sinhala Summary: [Sinhala translation of the analysis. Start this summary directly with a capital letter.]`;
     
-    const userQuery = `Analyze the potential market impact of this news and provide a brief summary in Sinhala. Headline: "${headline}". Description: "${description}"`;
+    const userQuery = `Analyze the potential market impact and sentiment of this news and provide a brief summary in Sinhala. Headline: "${headline}". Description: "${description}"`;
 
-    const payload = {
-        contents: [{ parts: [{ text: userQuery }] }],
-        tools: [{ "google_search": {} }],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-    };
-    
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-            const response = await fetch(GEMINI_API_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+    try {
+        const response = await fetch(GEMINI_API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: userQuery }] }],
+                tools: [{ "google_search": {} }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+            })
+        });
 
-            if (response.status === 429) {
-                const delay = initialDelay * Math.pow(2, attempt);
-                await new Promise(resolve => setTimeout(resolve, delay));
-                continue;
+        const result = await response.json();
+        const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        if (!textResponse) { throw new Error("Gemini response was empty or malformed."); }
+        
+        // Parsing the text response
+        const lines = textResponse.split('\n');
+        let impact = 'Unknown';
+        let sentiment = 'Neutral';
+        let summarySi = 'AI විශ්ලේෂණයක් සැපයීමට නොහැකි විය.';
+
+        lines.forEach(line => {
+            if (line.startsWith('Impact:')) {
+                impact = line.replace('Impact:', '').trim().toUpperCase();
+            } else if (line.startsWith('Sentiment:')) {
+                sentiment = line.replace('Sentiment:', '').trim();
+            } else if (line.startsWith('Sinhala Summary:')) {
+                summarySi = line.replace('Sinhala Summary:', '').trim();
             }
+        });
+        
+        // Format for final post output (HTML used for Telegram post)
+        let sentimentEmoji = '⚪';
+        if (sentiment.toLowerCase().includes('bullish')) sentimentEmoji = '🟢 Bullish 🐂';
+        else if (sentiment.toLowerCase().includes('bearish')) sentimentEmoji = '🔴 Bearish 🐻';
+        else sentimentEmoji = '🟡 Neutral ⚖️';
+        
+        const formattedSummary = `\n\n✨ <b>AI වෙළඳපොළ විශ්ලේෂණය</b> ✨\n\n` +
+               `<b>📈 බලපෑම:</b> ${sentimentEmoji}\n\n` +
+               `<b>📝 සාරාංශය:</b> ${summarySi}`;
 
-            if (!response.ok) {
-                throw new Error("Gemini API call failed with non-OK status.");
-            }
 
-            const result = await response.json();
-            const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
-            
-            if (!textResponse) { throw new Error("Gemini response was empty or malformed."); }
-            
-            const lines = textResponse.split('\n');
-            let sentiment = 'Neutral';
-            let summarySi = 'AI විශ්ලේෂණයක් සැපයීමට නොහැකි විය.';
-
-            lines.forEach(line => {
-                if (line.startsWith('Sentiment:')) {
-                    sentiment = line.replace('Sentiment:', '').trim();
-                } else if (line.startsWith('Sinhala Summary:')) {
-                    summarySi = line.replace('Sinhala Summary:', '').trim();
-                }
-            });
-            
-            let sentimentEmoji = '⚪';
-            if (sentiment.toLowerCase().includes('bullish')) sentimentEmoji = '🟢 Bullish 🐂';
-            else if (sentiment.toLowerCase().includes('bearish')) sentimentEmoji = '🔴 Bearish 🐻';
-            else sentimentEmoji = '🟡 Neutral ⚖️';
-
-            return `\n\n✨ <b>AI වෙළඳපොළ විශ්ලේෂණය</b> ✨\n\n` +
-                   `<b>📈 බලපෑම:</b> ${sentimentEmoji}\n\n` +
-                   `<b>📝 සාරාංශය:</b> ${summarySi}`;
-        } catch (error) {
-            if (attempt === maxRetries - 1) {
-                return "\n\n⚠️ <b>AI විශ්ලේෂණය ලබා ගැනීමට නොහැකි විය.</b>";
-            }
-            const delay = initialDelay * Math.pow(2, attempt);
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
+        return { impact, summary: formattedSummary, sentiment };
+    } catch (error) {
+        console.error(`Gemini AI analysis failed:`, error.message);
+        return {
+            impact: 'Unknown',
+            summary: "\n\n⚠️ <b>AI විශ්ලේෂණය ලබා ගැනීමට නොහැකි විය.</b>",
+            sentiment: 'Neutral'
+        };
     }
 }
 
+/**
+ * Scrapes the latest news headline, URL, description, and image URL from Forex Factory.
+ */
 async function getLatestForexNews() {
-    const resp = await fetch(CONFIG.FF_NEWS_URL, { headers: CONFIG.HEADERS });
+    const resp = await fetch(FF_NEWS_URL, { headers: HEADERS });
     if (!resp.ok) throw new Error(`[SCRAPING ERROR] HTTP error! status: ${resp.status} on news page.`);
 
     const html = await resp.text();
     const $ = load(html);
     
-    // Find the latest news item. Use the news link to identify the row.
+    // Find the latest news item.
     const newsLinkTag = $('a[href^="/news/"]').not('a[href$="/hit"]').first();
 
     if (newsLinkTag.length === 0) return null;
     
-    // 1. Find the parent row element (tr)
-    const $row = newsLinkTag.closest('tr');
-    
-    // 2. Find the impact icon within that row
-    const $impactIcon = $row.find('span.impact-icon');
-    
-    let impact = 'Unknown';
-    if ($impactIcon.hasClass('impact-icon--red')) {
-        impact = 'High';
-    } else if ($impactIcon.hasClass('impact-icon--orange')) {
-        impact = 'Medium';
-    } else if ($impactIcon.hasClass('impact-icon--yellow')) {
-        impact = 'Low';
-    }
-    
     const headline = newsLinkTag.text().trim();
     const newsUrl = "https://www.forexfactory.com" + newsLinkTag.attr('href');
     
-    const newsResp = await fetch(newsUrl, { headers: CONFIG.HEADERS });
+    // Fetch the detail page for description and image
+    const newsResp = await fetch(newsUrl, { headers: HEADERS });
     if (!newsResp.ok) throw new Error(`[SCRAPING ERROR] HTTP error! status: ${newsResp.status} on detail page`);
 
     const newsHtml = await newsResp.text();
@@ -485,7 +498,8 @@ async function getLatestForexNews() {
     
     let imgUrl = $detail('img.attach').attr('src'); 
     
-    const description = $detail('p.news__copy').text().trim() || CONFIG.FALLBACK_DESCRIPTION_EN;
+    // Scrape main description copy. Use the fallback text if no description is found.
+    const description = $detail('p.news__copy').text().trim() || FALLBACK_DESCRIPTION_EN;
 
     if (imgUrl && imgUrl.startsWith('/')) {
         imgUrl = "https://www.forexfactory.com" + imgUrl;
@@ -493,63 +507,62 @@ async function getLatestForexNews() {
         imgUrl = null;
     }
     
-    // Return impact along with other data
-    return { headline, newsUrl, imgUrl, description, impact };
+    return { headline, newsUrl, imgUrl, description };
 }
 
+/**
+ * Core function to fetch news, filter by AI impact, and post to Telegram.
+ */
 async function fetchForexNews(env) {
+    const CHAT_ID = CONFIG.TELEGRAM_CHAT_ID;
     try {
         const news = await getLatestForexNews();
         if (!news) return;
-
-        // --- NEW IMPACT FILTERING LOGIC ---
-        if (news.impact !== 'High') {
-            console.info(`Forex: Skipping post. Impact is ${news.impact} (Only High Impact is required). Headline: ${news.headline}`);
-            return; // Skip posting and don't update KV if not High Impact
-        }
-        // --- END NEW IMPACT FILTERING LOGIC ---
-
-        const lastHeadline = await readForexKV(env, FOREX_STATUS_KEYS.LAST_HEADLINE);
+        
         const currentHeadline = news.headline;
+        const lastHeadline = await readKV(env, NEWS_KV_KEYS.LAST_HEADLINE);
         const cleanLastHeadline = lastHeadline ? lastHeadline.trim() : null; 
 
         if (currentHeadline === cleanLastHeadline) {
             console.info(`Forex: No new headline. Last: ${currentHeadline}. Skipping post.`);
             return; 
         }
-        
-        const date_time = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD hh:mm A');
 
-        let description_si;
-        if (news.description === CONFIG.FALLBACK_DESCRIPTION_EN) {
-            description_si = "ℹ️ විස්තරයක් නොමැත.";
-        } else {
-            description_si = await translateText(news.description);
+        // --- 🚨 NEW STEP: Get AI Impact and Analysis ---
+        const newsForAI = (news.description !== FALLBACK_DESCRIPTION_EN) ? news.description : news.headline;
+        const aiResult = await getAIAnalysis(news.headline, newsForAI);
+        
+        // --- 🚨 NEW FILTERING LOGIC: AI MUST DECLARE 'HIGH' IMPACT 🚨 ---
+        if (aiResult.impact !== 'HIGH') {
+            console.info(`Forex: Skipping post. AI determined Impact is ${aiResult.impact}. Headline: ${news.headline}`);
+            return; // HIGH Impact නොවේ නම්, කිසිවක් Post කිරීමකින් තොරව නවතී.
         }
+        // --- END AI FILTERING LOGIC ---
         
-        const newsForAI = (news.description !== CONFIG.FALLBACK_DESCRIPTION_EN) ? news.description : news.headline;
-        const aiSummary = await getAISentimentSummary(news.headline, newsForAI);
+        // KV Update only happens if it's a new, high-impact headline
+        await writeKV(env, NEWS_KV_KEYS.LAST_HEADLINE, currentHeadline);
+
+        const date_time = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD hh:mm A');
         
-        const impactEmoji = '🚨';
-        
-        const message = `<b>${impactEmoji} HIGH IMPACT NEWS (සිංහල) ${impactEmoji}</b>\n\n` +
+        // --- Construct the final message using AI result (using HTML parse mode) ---
+        const message = `<b>🚨 HIGH IMPACT NEWS (සිංහල) 🚨</b>\n\n` +
                          `<b>⏰ Date & Time:</b> ${date_time}\n\n` +
                          `<b>🌎 Headline (English):</b> ${news.headline}\n\n` +
                          
-                         `${aiSummary}\n\n` + 
+                         // Inject the AI Summary here (uses HTML from getAIAnalysis)
+                         `${aiResult.summary}\n\n` + 
                          
                          `<b>🚀 Dev: Mr Chamo 🇱🇰</b>`;
 
-        const postSuccess = await sendUnifiedMessage(CONFIG.FOREX_CHAT_ID, message, 'HTML', news.imgUrl);
+        // Store the final HTML message and image URL
+        await writeKV(env, NEWS_KV_KEYS.LAST_FULL_MESSAGE, message);
+        await writeKV(env, NEWS_KV_KEYS.LAST_IMAGE_URL, news.imgUrl || ''); 
+
+        // Send the message, using sendPhoto if imgUrl is available (using HTML parse mode)
+        await sendUnifiedMessage(CHAT_ID, message, 'HTML', news.imgUrl);
         
-        if (postSuccess) {
-            await writeForexKV(env, FOREX_STATUS_KEYS.LAST_HEADLINE, currentHeadline);
-            await writeForexKV(env, FOREX_STATUS_KEYS.LAST_FULL_MESSAGE, message);
-            await writeForexKV(env, FOREX_STATUS_KEYS.LAST_IMAGE_URL, news.imgUrl || ''); 
-            console.log(`Forex: Successfully posted High Impact news and updated KV for: ${currentHeadline}`);
-        } else {
-            console.error("Forex: Failed to post message, KV not updated to prevent duplication.");
-        }
+        console.log(`Forex: Successfully posted High Impact news (AI Filtered): ${currentHeadline}`);
+        
     } catch (error) {
         console.error("An error occurred during FUNDAMENTAL task:", error.stack);
     }
@@ -557,13 +570,15 @@ async function fetchForexNews(env) {
 
 
 // =================================================================
-// --- 5. TRADING ASSISTANT AI LOGIC (Manual Command Only) ---
+// --- 3. TRADING Q&A LOGIC (with Rate Limiting) ---
 // =================================================================
+
+// Functions imported from trading_assistant.js
 
 async function generateScheduledContent(env) { 
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
-    const coveredTopicsString = await readTradingKV(env, TRADING_STATUS_KEYS.COVERED_TOPICS) || "[]";
+    const coveredTopicsString = await readKV(env, TRADING_KV_KEYS.COVERED_TOPICS) || "[]";
     let coveredTopics = JSON.parse(coveredTopicsString);
     
     const excludedTopicsString = coveredTopics.join(', ');
@@ -597,14 +612,13 @@ async function generateScheduledContent(env) {
         const content = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
         
         if (content) {
-            const newTopicMatch = content.match(/\*([^*]+)\*/);
+            const newTopicMatch = content.match(/\*([^*]+)\*/); // පළමු බෝල්ඩ් කර ඇති මාතෘකාව ලබා ගනී
             const newTopic = newTopicMatch ? newTopicMatch[1].trim() : "Untitled Post";
             
-            // Only update the topic list if the generation was successful 
             coveredTopics.push(newTopic);
             
-            await writeTradingKV(env, TRADING_STATUS_KEYS.COVERED_TOPICS, JSON.stringify(coveredTopics));
-            await writeTradingKV(env, TRADING_STATUS_KEYS.LAST_TRADING_TOPIC, newTopic);
+            await writeKV(env, TRADING_KV_KEYS.COVERED_TOPICS, JSON.stringify(coveredTopics));
+            await writeKV(env, TRADING_KV_KEYS.LAST_TRADING_TOPIC, newTopic);
             
             return content;
         }
@@ -680,18 +694,15 @@ async function validateTopic(userQuestion) {
     }
 }
 
-
-// --- 5.1 Trading Assistant Rate Limit and User Count Logic (Unchanged) ---
-
 async function checkAndIncrementUsage(env, chatId) {
     if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString()) {
         return { allowed: true, count: 'Unlimited' };
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
     const KV_KEY = `usage:${today}:${chatId}`;
 
-    const currentUsageStr = await readTradingKV(env, KV_KEY);
+    const currentUsageStr = await readKV(env, KV_KEY);
     let currentUsage = parseInt(currentUsageStr) || 0;
 
     if (currentUsage >= CONFIG.DAILY_LIMIT) {
@@ -700,42 +711,56 @@ async function checkAndIncrementUsage(env, chatId) {
 
     currentUsage += 1;
     
-    const now = new Date();
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0); 
-    const expirationTtl = Math.max(1, Math.ceil((endOfDay.getTime() - now.getTime()) / 1000)); 
+    // Calculate TTL until next midnight in Colombo time
+    const now = moment().tz(CONFIG.COLOMBO_TIMEZONE);
+    const endOfDay = moment().tz(CONFIG.COLOMBO_TIMEZONE).add(1, 'days').startOf('day'); 
+    const expirationTtl = Math.max(1, endOfDay.diff(now, 'seconds')); 
     
-    await writeTradingKV(env, KV_KEY, currentUsage.toString(), { expirationTtl: expirationTtl });
+    await writeKV(env, KV_KEY, currentUsage.toString(), { expirationTtl: expirationTtl });
 
     return { allowed: true, count: currentUsage, kvKey: KV_KEY };
 }
 
+// FIX: 'userSet.push is not a function' දෝෂය නිරාකරණය කර ඇත
 async function updateAndEditUserCount(env, userId) {
+    const USER_SET_KEY = TRADING_KV_KEYS.BOT_USER_SET; 
+    const COUNT_POST_ID_KEY = TRADING_KV_KEYS.COUNT_POST_ID; 
+    const DAILY_COUNT_KEY = TRADING_KV_KEYS.DAILY_USER_COUNT; 
+
     const userIdString = userId.toString();
 
-    const userSet = await readTradingKV(env, TRADING_STATUS_KEYS.BOT_USER_SET, 'json') || [];
+    // KV එකෙන් JSON ලෙස කියවන්න (නිවැරදි කරන ලද readKV)
+    const userSetRaw = await readKV(env, USER_SET_KEY, 'text');
+    let userSet = userSetRaw ? JSON.parse(userSetRaw) : [];
+
+    // Array එකක් නොවේ නම් හිස් Array එකක් භාවිතා කරන්න (Failsafe)
+    if (!Array.isArray(userSet)) { userSet = []; }
+
     const isNewUser = !userSet.includes(userIdString);
     
     if (isNewUser) {
-        userSet.push(userIdString);
-        await writeTradingKV(env, TRADING_STATUS_KEYS.BOT_USER_SET, JSON.stringify(userSet));
+        userSet.push(userIdString); // දැන් මෙය Array එකක් බැවින් දෝෂයක් නැත
+        await writeKV(env, USER_SET_KEY, JSON.stringify(userSet));
         const totalCount = userSet.length;
         
-        const dailyCountStr = await readTradingKV(env, TRADING_STATUS_KEYS.DAILY_COUNT_KEY) || '0';
+        const dailyCountStr = await readKV(env, DAILY_COUNT_KEY) || '0';
         let dailyCount = parseInt(dailyCountStr);
         dailyCount += 1;
         
-        const now = new Date();
-        const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0); 
-        const expirationTtl = Math.max(1, Math.ceil((endOfDay.getTime() - now.getTime()) / 1000)); 
-        await writeTradingKV(env, TRADING_STATUS_KEYS.DAILY_COUNT_KEY, dailyCount.toString(), { expirationTtl: expirationTtl });
+        // Calculate TTL until next midnight in Colombo time
+        const now = moment().tz(CONFIG.COLOMBO_TIMEZONE);
+        const endOfDay = moment().tz(CONFIG.COLOMBO_TIMEZONE).add(1, 'days').startOf('day'); 
+        const expirationTtl = Math.max(1, endOfDay.diff(now, 'seconds')); 
+
+        await writeKV(env, DAILY_COUNT_KEY, dailyCount.toString(), { expirationTtl: expirationTtl });
         
-        const postDetailsStr = await readTradingKV(env, TRADING_STATUS_KEYS.COUNT_POST_ID);
+        const postDetailsStr = await readKV(env, COUNT_POST_ID_KEY);
         
         if (postDetailsStr) {
             const [chatId, messageId] = postDetailsStr.split(':');
             
-            const timeZone = 'Asia/Colombo';
-            const currentTime = new Date().toLocaleTimeString('en-US', { timeZone: timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const timeZone = CONFIG.COLOMBO_TIMEZONE;
+            const currentTime = moment().tz(timeZone).format('hh:mm:ss A');
             
             const newCaption = `*⭐ Bot Statistics Update 📈*
             
@@ -756,24 +781,29 @@ async function updateAndEditUserCount(env, userId) {
         }
     }
 
-    return { success: isNewUser, newCount: userSet.length };
+    return { success: isNewUser, newCount: Array.isArray(userSet) ? userSet.length : 0 };
 }
 
-async function sendInitialCountPost(env, ownerChatId) {
-    const PHOTO_URL = "https://envs.sh/7R4.jpg";
-    const targetChatId = CONFIG.TRADING_CHAT_ID;
+// =================================================================
+// --- 4. OWNER COMMANDS ---
+// =================================================================
 
-    const existingPost = await readTradingKV(env, TRADING_STATUS_KEYS.COUNT_POST_ID);
+async function sendInitialCountPost(env, ownerChatId) {
+    const COUNT_POST_ID_KEY = TRADING_KV_KEYS.COUNT_POST_ID;
+    const targetChatId = CONFIG.TELEGRAM_CHAT_ID;
+
+    const existingPost = await readKV(env, COUNT_POST_ID_KEY);
     if (existingPost) {
         return { success: false, message: `Permanent Count Post එක දැනටමත් පවතී. Post ID: ${existingPost}` };
     }
 
-    const userSet = await readTradingKV(env, TRADING_STATUS_KEYS.BOT_USER_SET, 'json') || [];
-    const dailyCountStr = await readTradingKV(env, TRADING_STATUS_KEYS.DAILY_COUNT_KEY) || '0';
-    const totalCount = userSet.length;
+    const userSetRaw = await readKV(env, TRADING_KV_KEYS.BOT_USER_SET, 'text');
+    const userSet = userSetRaw ? JSON.parse(userSetRaw) : [];
+    const dailyCountStr = await readKV(env, TRADING_KV_KEYS.DAILY_USER_COUNT) || '0';
+    const totalCount = Array.isArray(userSet) ? userSet.length : 0;
     
-    const timeZone = 'Asia/Colombo';
-    const currentTime = new Date().toLocaleTimeString('en-US', { timeZone: timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const timeZone = CONFIG.COLOMBO_TIMEZONE;
+    const currentTime = moment().tz(timeZone).format('hh:mm:ss A');
 
     const initialCaption = `*⭐ Bot Statistics Update 📈*
             
@@ -792,11 +822,11 @@ async function sendInitialCountPost(env, ownerChatId) {
         [{ text: "Click for Private Info", callback_data: 'SHOW_PRIVATE_INFO' }]
     ];
 
-    const result = await sendPhotoWithCaption(targetChatId, PHOTO_URL, initialCaption, keyboard);
+    const result = await sendPhotoWithCaption(targetChatId, STATS_PHOTO_URL, initialCaption, keyboard);
     
     if (result.success) {
         const postIdentifier = `${targetChatId}:${result.messageId}`;
-        await writeTradingKV(env, TRADING_STATUS_KEYS.COUNT_POST_ID, postIdentifier);
+        await writeKV(env, COUNT_POST_ID_KEY, postIdentifier);
         return { success: true, message: `Permanent Count Post එක සාර්ථකව \`${targetChatId}\` Chat ID එකට යවා ගබඩා කරන ලදී. Post ID: ${postIdentifier}` };
     } else {
         return { success: false, message: `Post යැවීම අසාර්ථක විය: ${JSON.stringify(result.error)}` };
@@ -805,203 +835,18 @@ async function sendInitialCountPost(env, ownerChatId) {
 
 
 // =================================================================
-// --- 6. COMMAND AND WEBHOOK HANDLERS ---
+// --- 5. CALLBACK QUERY HANDLER (Owner Limit Approval) ---
 // =================================================================
-
-async function handleTelegramUpdate(update, env) {
-
-    if (!update.message || !update.message.text) {
-        return; 
-    }
-    
-    const text = update.message.text.trim();
-    const command = text.split(' ')[0].toLowerCase();
-    const userId = update.message.from.id;
-    const chatId = update.message.chat.id; 
-    const messageId = update.message.message_id; 
-    const username = update.message.from.username || update.message.from.first_name;
-
-    // --- Forex News Bot's /fundamental command ---
-    if (command === '/fundamental') { 
-        const isMember = await checkChannelMembership(userId);
-
-        if (!isMember) {
-            const denialMessage = 
-                `⛔ <b>Access Denied</b> ⛔\n\n` +
-                `Hey There <a href="tg://user?id=${userId}">${username}</a>,\n` +
-                `You Must Join <b>${CONFIG.CHANNEL_LINK_TEXT}</b> Channel To Use This BOT.\n` +
-                `So, Please Join it & Try Again.👀 Thank You ✍️`;
-            
-            const replyMarkup = {
-                inline_keyboard: [
-                    [{ 
-                        text: `🔥 ${CONFIG.CHANNEL_LINK_TEXT} < / >`, 
-                        url: CONFIG.CHANNEL_LINK_URL 
-                    }]
-                ]
-            };
-
-            await sendUnifiedMessage(chatId, denialMessage, 'HTML', null, replyMarkup, messageId); 
-            return; 
-        }
-
-        const messageKey = FOREX_STATUS_KEYS.LAST_FULL_MESSAGE;
-        const lastImageUrl = await readForexKV(env, FOREX_STATUS_KEYS.LAST_IMAGE_URL);
-        
-        const lastFullMessage = await readForexKV(env, messageKey);
-        
-        if (lastFullMessage) {
-            await sendUnifiedMessage(chatId, lastFullMessage, 'HTML', lastImageUrl, null, messageId); 
-        } else {
-            const fallbackText = "Sorry, no recent fundamental news has been processed yet. Please wait for the next update.";
-            await sendUnifiedMessage(chatId, fallbackText, 'Markdown', null, null, messageId); 
-        }
-        return;
-    }
-    
-    // --- All other commands/messages go to the Trading Assistant handler ---
-    return await handleTradingWebhookLogic(update, env);
-}
-
-async function handleTradingWebhookLogic(update, env) {
-    if (update && update.message && update.message.text) {
-        const message = update.message;
-        const chatId = message.chat.id;
-        const messageId = message.message_id;
-        const text = message.text.trim();
-        const userId = message.from.id; 
-        
-        const userFirstName = message.from.first_name || "N/A";
-        const userName = message.from.username ? `@${message.from.username}` : "N/A";
-
-        // --- ADMIN COMMANDS (Owner Only) ---
-
-        // NEW ADMIN COMMAND: Manual Trading Post
-        if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/trading_post')) {
-            const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
-            const postKey = `daily_post_status:${today}`;
-            
-            // Check if already posted today
-            if (await readTradingKV(env, postKey) === 'POSTED') {
-                await sendTelegramReply(chatId, "❌ *අද දින Trading Post එක දැනටමත් යවා ඇත.* නැවත යැවීමට අවශ්‍ය නම්, KV Key එක මකා දමා නැවත උත්සාහ කරන්න.", messageId);
-                return new Response('Post already sent', { status: 200 });
-            }
-
-            const statusMessageId = await sendTelegramReply(chatId, "⏳ *Trading Post Content එක සකස් කරමින්...*", messageId);
-            if (!statusMessageId) { return new Response('Failed to send status message', { status: 500 }); }
-
-            const postContent = await generateScheduledContent(env);
-
-            if (postContent) {
-                await editTelegramMessage(chatId, statusMessageId, "✍️ *Channel එකට Post කරමින්...*");
-                
-                const success = await sendTelegramMessage(postContent);
-                
-                if (success) {
-                    await writeTradingKV(env, postKey, 'POSTED', { expirationTtl: 86400 }); // Expires in 24 hours
-                    await editTelegramMessage(chatId, statusMessageId, "✅ *Trading Post එක සාර්ථකව Channel එකට යවන ලදී.* (KV Status Updated)");
-                } else {
-                    await editTelegramMessage(chatId, statusMessageId, "❌ *Trading Post එක Telegram වෙත යැවීම අසාර්ථක විය.* (KV Status Not Updated)");
-                }
-            } else {
-                await editTelegramMessage(chatId, statusMessageId, "❌ *Trading Post Content Generation එක අසාර්ථක විය.*");
-            }
-            return new Response('Trading post command processed', { status: 200 });
-        }
-
-
-        // Existing Admin Command: /send_count_post
-        if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/send_count_post')) {
-            const result = await sendInitialCountPost(env, chatId); 
-            await sendTelegramReply(chatId, result.message, messageId);
-            return new Response('Count post command processed', { status: 200 });
-        }
-
-        // Existing Admin Command: /unlimit
-        if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && text.startsWith('/unlimit')) {
-            const parts = text.split(' ');
-            if (parts.length === 2) {
-                const targetChatId = parts[1].trim();
-                const today = new Date().toISOString().slice(0, 10);
-                const KV_KEY = `usage:${today}:${targetChatId}`;
-                
-                await env.POST_STATUS_KV.delete(KV_KEY);
-                
-                const successMessage = `✅ *User Limit Removed!* \n\nUser ID: \`${targetChatId}\` ගේ දෛනික සීමාව (limit) අද දින සඳහා සාර්ථකව ඉවත් කරන ලදී.`;
-                await sendTelegramReply(chatId, successMessage, messageId);
-                return new Response('Admin command processed', { status: 200 });
-            } else {
-                await sendTelegramReply(chatId, "⚠️ *Usage:* /unlimit [User_Chat_ID_Eka]", messageId);
-                return new Response('Admin command error', { status: 200 });
-            }
-        }
-
-        // --- REGULAR COMMANDS (/start, /help) ---
-        if (text.startsWith('/')) {
-            const command = text.split(' ')[0].toLowerCase();
-            
-            if (command === '/start' || command === '/help') {
-                await updateAndEditUserCount(env, userId);
-                
-                const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
-                await sendTelegramReply(chatId, welcomeMessage, messageId);
-                return new Response('Command processed', { status: 200 });
-            }
-        }
-        
-        // --- TRADING QUESTION LOGIC ---
-        
-        const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
-        const isTradingTopic = await validateTopic(text); 
-        
-        if (isTradingTopic) {
-            
-            const usageResult = await checkAndIncrementUsage(env, chatId);
-            
-            if (!usageResult.allowed) {
-                const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
-                
-                const requestId = `REQ_${generateRandomId()}`;
-                const requestData = {
-                    userChatId: chatId, userMessageId: validationMessageId, targetUserId: userId, userFirstName: userFirstName, userName: userName
-                };
-                await writeTradingKV(env, `UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
-
-                const keyboard = [
-                    [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
-                ];
-                
-                await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
-                return new Response('Rate limited with inline request button', { status: 200 });
-            }
-            
-            await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
-            
-            await sendTypingAction(chatId); 
-            await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
-            
-            const replyText = await generateReplyContent(text);
-            
-            await editTelegramMessage(chatId, validationMessageId, replyText);
-            
-        } else {
-            const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
-            await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
-        }
-    }
-    
-    return new Response('OK', { status: 200 });
-}
-
 
 async function handleCallbackQuery(query, env) {
     const data = query.data;
     const callbackQueryId = query.id;
     const userId = query.from.id;
 
+    // 1. 🛑 UNLIMIT REQUEST LOGIC 
     if (data.startsWith('REQUEST_UNLIMIT_')) {
         const requestId = data.substring('REQUEST_UNLIMIT_'.length);
-        const requestDataStr = await env.POST_STATUS_KV.get(`UNLIMIT_REQUEST_${requestId}`);
+        const requestDataStr = await readKV(env, `UNLIMIT_REQUEST_${requestId}`);
         
         if (!requestDataStr) {
             await answerCallbackQuery(callbackQueryId, "⚠️ මෙම ඉල්ලීම කල් ඉකුත් වී ඇත. නැවත උත්සාහ කරන්න.", true);
@@ -1010,23 +855,36 @@ async function handleCallbackQuery(query, env) {
         
         const requestData = JSON.parse(requestDataStr);
         const { userChatId, userMessageId, targetUserId, userFirstName, userName } = requestData;
+
         const safeUserFirstName = escapeMarkdown(userFirstName);
         const safeUserName = escapeMarkdown(userName);
         
         await answerCallbackQuery(callbackQueryId, "✅ Owner වෙත ඔබගේ Limit ඉල්ලීම යවන ලදී. කරුණාකර පිළිතුරක් ලැබෙන තෙක් රැඳී සිටින්න.", true);
         
-        const requestMessage = `*👑 UNLIMIT REQUEST* \n\n*User Name:* ${safeUserFirstName} (${safeUserName})\n*User ID:* \`${targetUserId}\`\n*User Chat ID:* \`${userChatId}\`\n*Original Message ID:* \`${userMessageId}\`\n\nමෙම User ගේ අද දින Limit එක ඉවත් කර, ඔහුට සාර්ථක ලෙස දැනුම් දීමට පහත Button භාවිතා කරන්න.`;
+        const requestMessage = `*👑 UNLIMIT REQUEST* \n
+*User Name:* ${safeUserFirstName} (${safeUserName})
+*User ID:* \`${targetUserId}\`
+*User Chat ID:* \`${userChatId}\`
+*Original Message ID:* \`${userMessageId}\`
+\n\nමෙම User ගේ අද දින Limit එක ඉවත් කර, ඔහුට සාර්ථක ලෙස දැනුම් දීමට පහත Button භාවිතා කරන්න.`;
 
         const approvalKeyboard = [
             [{ text: "✅ Approve Request", callback_data: `APPROVE_UNLIMIT_${requestId}` }],
             [{ text: "❌ Reject Request", callback_data: `REJECT_UNLIMIT_${requestId}` }]
         ];
         
-        await sendTelegramReplyToOwner(requestMessage, approvalKeyboard);
+        const sentToOwner = await sendTelegramReplyToOwner(requestMessage, approvalKeyboard);
+        
+        if (!sentToOwner) {
+             console.error(`Failed to send unlimit request for user ${targetUserId} to owner.`);
+        }
         
         return new Response('Unlimit request sent to owner', { status: 200 });
         
-    } else if (data.startsWith('APPROVE_UNLIMIT_') || data.startsWith('REJECT_UNLIMIT_')) {
+    } 
+    
+    // 2. 👑 APPROVAL / REJECTION LOGIC
+    else if (data.startsWith('APPROVE_UNLIMIT_') || data.startsWith('REJECT_UNLIMIT_')) {
         
         if (userId.toString() !== CONFIG.OWNER_CHAT_ID.toString()) {
             await answerCallbackQuery(callbackQueryId, "🛑 ඔබට මෙය Approve කිරීමට බලය නැත. (Owner Only)", true);
@@ -1036,7 +894,7 @@ async function handleCallbackQuery(query, env) {
         const isApproved = data.startsWith('APPROVE');
         const requestId = data.substring(data.startsWith('APPROVE') ? 'APPROVE_UNLIMIT_'.length : 'REJECT_UNLIMIT_'.length);
         
-        const requestDataStr = await env.POST_STATUS_KV.get(`UNLIMIT_REQUEST_${requestId}`);
+        const requestDataStr = await readKV(env, `UNLIMIT_REQUEST_${requestId}`);
         
         if (!requestDataStr) {
             await answerCallbackQuery(callbackQueryId, "⚠️ මෙම ඉල්ලීම කල් ඉකුත් වී ඇත. User ට සෘජුවම දැනුම් දෙන්න.", true);
@@ -1050,46 +908,75 @@ async function handleCallbackQuery(query, env) {
 
         const userChatIdInt = parseInt(userChatId);
         const userMessageIdInt = parseInt(userMessageId);
-        const KV_KEY = `usage:${new Date().toISOString().slice(0, 10)}:${userChatId}`;
+        
+        const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
+        const KV_KEY = `usage:${today}:${userChatId}`;
+        
         const ownerChatId = query.message.chat.id;
         const ownerMessageId = query.message.message_id;
+        
         let newOwnerMessage = query.message.text.split('මෙම User ගේ')[0]; 
-        const timeZone = 'Asia/Colombo';
-        const currentTime = new Date().toLocaleTimeString('en-US', { timeZone: timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        
+        const timeZone = CONFIG.COLOMBO_TIMEZONE;
+        const currentTime = moment().tz(timeZone).format('hh:mm:ss A');
+        
         
         if (isApproved) {
             await env.POST_STATUS_KV.delete(KV_KEY);
+            
             const successText = `✅ *Request Approved!* \n\n**Owner විසින් ඔබගේ Limit ඉල්ලීම අනුමත කරන ලදී!** \n\nදැන් ඔබට නැවත Bot භාවිතා කළ හැකිය. (Limit එක Reset වී ඇත.)`;
             const userEditSuccess = await editTelegramMessage(userChatIdInt, userMessageIdInt, successText);
             
-            await removeInlineKeyboard(ownerChatId, ownerMessageId);
+            await removeInlineKeyboard(ownerChatId, ownerMessageId); 
             
-            const approvalDetails = `\n\n*✅ STATUS: Approved by Owner!*\n\n*User ID:* \`${targetUserId}\`\n*User Name:* ${userFirstName}\n*Message ID:* \`${userMessageId}\`\n*Time:* ${currentTime} (SL Time)\n\n_User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'}_`;
+            const approvalDetails = `\n
+*✅ STATUS: Approved by Owner!*
+\n*User ID:* \`${targetUserId}\`
+*User Name:* ${userFirstName}
+*Message ID:* \`${userMessageId}\`
+*Time:* ${currentTime} (SL Time)
+\n_User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'}_`;
+
             newOwnerMessage += approvalDetails;
             
             await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage); 
+            
             await answerCallbackQuery(callbackQueryId, `✅ User ${targetUserId} ගේ Limit එක ඉවත් කර, ඔහුට දැනුම් දෙන ලදී.`, true);
             
-        } else {
+        } else { // Rejected
+            
             const rejectText = `❌ *Request Rejected* \n\n**Owner විසින් ඔබගේ Limit ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී.** \n\nකරුණාකර හෙට දින නැවත උත්සාහ කරන්න.`;
             const userEditSuccess = await editTelegramMessage(userChatIdInt, userMessageIdInt, rejectText);
 
             await removeInlineKeyboard(ownerChatId, ownerMessageId);
             
-            const rejectionDetails = `\n\n*❌ STATUS: Rejected by Owner!*\n\n*User ID:* \`${targetUserId}\`\n*User Name:* ${userFirstName}\n*Message ID:* \`${userMessageId}\`\n*Time:* ${currentTime} (SL Time)\n\n_User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'}_`;
+            const rejectionDetails = `\n
+*❌ STATUS: Rejected by Owner!*
+\n*User ID:* \`${targetUserId}\`
+*User Name:* ${userFirstName}
+*Message ID:* \`${userMessageId}\`
+*Time:* ${currentTime} (SL Time)
+\n_User Edit Status: ${userEditSuccess ? 'Success' : 'Failed'}_`;
+
             newOwnerMessage += rejectionDetails;
             
             await editTelegramMessage(ownerChatId, ownerMessageId, newOwnerMessage);
+
             await answerCallbackQuery(callbackQueryId, `❌ User ${targetUserId} ගේ ඉල්ලීම ප්‍රතික්ෂේප කරන ලදී.`, true);
         }
         
         return new Response('Approval logic processed', { status: 200 });
-    } else if (data === 'SHOW_PRIVATE_INFO') {
+    }
+    
+    // 3. Private Info Button
+    else if (data === 'SHOW_PRIVATE_INFO') {
         const privateMessage = `*✅ ඔබට පමණක් පෞද්ගලික තොරතුරු (Personalized Info)*\n\nමෙම තොරතුරු *ඔබට පමණක්* දර්ශනය වන ලෙස **Alert Box** එකක් මඟින් පෙන්වනු ලැබේ.\n\n*User ID:* \`${userId}\``;
         await answerCallbackQuery(callbackQueryId, privateMessage, true);
         return new Response('Callback query processed (private alert sent)', { status: 200 });
 
-    } else {
+    } 
+    
+    else {
         await answerCallbackQuery(callbackQueryId, "Processing...", false);
         return new Response('Callback query handled', { status: 200 });
     }
@@ -1097,82 +984,269 @@ async function handleCallbackQuery(query, env) {
 
 
 // =================================================================
-// --- 7. WORKER EXPORT (Updated Entry Point) ---
+// --- 6. WEBHOOK HANDLER (UNIFIED COMMANDS) ---
 // =================================================================
 
-async function handleScheduledTasks(env) {
-    // 1. Forex News Fetch and Post (This is the ONLY scheduled task now)
-    await fetchForexNews(env);
+async function handleWebhook(request, env) {
+    try {
+        const update = await request.json();
+        
+        if (update && update.callback_query) {
+            return handleCallbackQuery(update.callback_query, env);
+        }
+
+        if (!update.message || !update.message.text) {
+            return new Response('Not a text message or callback', { status: 200 }); 
+        }
+        
+        const message = update.message;
+        const chatId = message.chat.id;
+        const messageId = message.message_id;
+        const text = message.text.trim();
+        const userId = message.from.id; 
+        const userFirstName = message.from.first_name || "N/A";
+        const userName = message.from.username ? `@${message.from.username}` : userFirstName;
+
+        // --- COMMANDS HANDLING ---
+        const isCommand = text.startsWith('/');
+        
+        if (isCommand) {
+            const command = text.split(' ')[0].toLowerCase();
+
+            // --- Owner Command to Send Initial Count Post ---
+            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && command === '/send_count_post') {
+                const result = await sendInitialCountPost(env, chatId); 
+                await sendTelegramReply(chatId, result.message, messageId);
+                return new Response('Count post command processed', { status: 200 });
+            }
+            // --- ADMIN COMMANDS (Owner Only) ---
+            if (chatId.toString() === CONFIG.OWNER_CHAT_ID.toString() && command === '/unlimit') {
+                const parts = text.split(' ');
+                if (parts.length === 2) {
+                    const targetChatId = parts[1].trim();
+                    const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
+                    const KV_KEY = `usage:${today}:${targetChatId}`;
+                    
+                    await env.POST_STATUS_KV.delete(KV_KEY);
+                    
+                    const successMessage = `✅ *User Limit Removed!* \n\nUser ID: \`${targetChatId}\` ගේ දෛනික සීමාව (limit) අද දින සඳහා සාර්ථකව ඉවත් කරන ලදී.`;
+                    await sendTelegramReply(chatId, successMessage, messageId);
+                    return new Response('Admin command processed', { status: 200 });
+                } else {
+                    await sendTelegramReply(chatId, "⚠️ *Usage:* /unlimit [User_Chat_ID_Eka]", messageId);
+                    return new Response('Admin command error', { status: 200 });
+                }
+            }
+
+
+            // --- /start and /help ---
+            if (command === '/start' || command === '/help') {
+                const isMember = await checkChannelMembership(userId);
+                if (isMember) {
+                    await updateAndEditUserCount(env, userId);
+                }
+
+                const welcomeMessage = "👋 *Welcome to the Trading Assistant Bot!* \n\nMata answer karanna puluwan **Trading, Finance, saha Crypto** related questions walata witharai. \n\n*Limit:* Dawasakata *Trading Questions 5* k withirai. (Owner ta unlimited). \n\nCommands: \n\n◇ `/fundamental` :- 📰 Last Fundamental News\n◇ `/help` :- 🤝 Show this menu\n\nTry karanna: 'Order Flow කියන්නේ මොකද්ද?' wage prashnayak ahanna.";
+                await sendTelegramReply(chatId, welcomeMessage, messageId);
+                return new Response('Command processed', { status: 200 });
+            } 
+            
+            // --- 🚨 NEWS COMMAND: /fundamental ---
+            else if (command === '/fundamental') {
+                // Universal Membership Check (News)
+                const isMember = await checkChannelMembership(userId);
+                if (!isMember) {
+                    const denialMessage = 
+                        `⛔ <b>Access Denied</b> ⛔\n\n` +
+                        `Hey There <a href="tg://user?id=${userId}">${userName}</a>,\n` +
+                        `ඔබට මෙම BOT එක භාවිතා කිරීමට නම්, අපගේ <b>${CONFIG.CHANNEL_LINK_TEXT}</b> Channel එකට Join විය යුතුය.\n` +
+                        `කරුණාකර Join වී නැවත උත්සාහ කරන්න.👀 Thank You ✍️`;
+                    
+                    const replyMarkup = {
+                        inline_keyboard: [
+                            [{ text: `🔥 ${CONFIG.CHANNEL_LINK_TEXT} < / >`, url: CONFIG.CHANNEL_LINK_URL }]
+                        ]
+                    };
+
+                    await sendUnifiedMessage(chatId, denialMessage, 'HTML', null, replyMarkup, messageId); 
+                    return new Response('Membership Denied (News)', { status: 200 });
+                }
+
+                const messageKey = NEWS_KV_KEYS.LAST_FULL_MESSAGE;
+                const lastImageUrl = await readKV(env, NEWS_KV_KEYS.LAST_IMAGE_URL);
+                const lastFullMessage = await readKV(env, messageKey);
+                
+                if (lastFullMessage) {
+                    // Send the last stored High Impact News Post (using HTML parse mode)
+                    await sendUnifiedMessage(chatId, lastFullMessage, 'HTML', lastImageUrl, null, messageId); 
+                } else {
+                    const fallbackText = "Sorry, no recent **HIGH IMPACT** fundamental news has been processed yet. Please wait for the next update.";
+                    await sendTelegramReply(chatId, fallbackText, messageId); 
+                }
+                return new Response('Fundamental command processed', { status: 200 });
+            }
+        }
+        
+        // --- TRADING QUESTION LOGIC ---
+        const isQuestion = !isCommand && text.length > 5;
+
+        if (isQuestion) {
+            // 1. 🚦 Universal Membership Check (Q&A)
+            const isMember = await checkChannelMembership(userId);
+            if (!isMember) {
+                const denialMessage = 
+                    `⛔ <b>Access Denied</b> ⛔\n\n` +
+                    `Hey There <a href="tg://user?id=${userId}">${userName}</a>,\n` +
+                    `ඔබට මෙම BOT එක භාවිතා කිරීමට නම්, අපගේ <b>${CONFIG.CHANNEL_LINK_TEXT}</b> Channel එකට Join විය යුතුය.\n` +
+                    `කරුණාකර Join වී නැවත උත්සාහ කරන්න.👀 Thank You ✍️`;
+                
+                const replyMarkup = {
+                    inline_keyboard: [
+                        [{ text: `🔥 ${CONFIG.CHANNEL_LINK_TEXT} < / >`, url: CONFIG.CHANNEL_LINK_URL }]
+                    ]
+                };
+
+                await sendUnifiedMessage(chatId, denialMessage, 'HTML', null, replyMarkup, messageId); 
+                return new Response('Membership Denied (Q&A)', { status: 200 });
+            }
+            
+            // 2. ⏳ Trading Validation - ආරම්භක පරීක්ෂාව 
+            const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
+            const isTradingTopic = await validateTopic(text); 
+            
+            if (isTradingTopic) {
+                
+                // 3. 🛑 Rate Limit Check
+                const usageResult = await checkAndIncrementUsage(env, chatId);
+                
+                if (!usageResult.allowed) {
+                    const limitMessage = `🛑 *Usage Limit Reached!* \n\nSorry, oyage **Trading Questions 5** (limit eka) ada dawasata iwarai. \n\n*Reset wenawa:* Midnight 12.00 AM walata. \n\n*Owner ge Approval one nam, Request karanna!*`;
+                    
+                    const requestId = `REQ_${generateRandomId()}`;
+                    const requestData = {
+                        userChatId: chatId,
+                        userMessageId: validationMessageId, 
+                        targetUserId: userId,
+                        userFirstName: userFirstName,
+                        userName: userName
+                    };
+                    await writeKV(env, `UNLIMIT_REQUEST_${requestId}`, JSON.stringify(requestData), { expirationTtl: 86400 });
+
+                    const keyboard = [
+                        [{ text: "👑 Request Owner Approval", callback_data: `REQUEST_UNLIMIT_${requestId}` }]
+                    ];
+                    
+                    await editTelegramMessageWithKeyboard(chatId, validationMessageId, limitMessage, keyboard);
+                    return new Response('Rate limited with inline request button', { status: 200 });
+                }
+                
+                // 4. 🌐 Searching Status 
+                await editTelegramMessage(chatId, validationMessageId, "🌐 *Web එක Search කරමින්...* (Finding up-to-date info)");
+                
+                // 5. 🧠 Generation Status 
+                await sendTypingAction(chatId); 
+                await editTelegramMessage(chatId, validationMessageId, "✍️ *සිංහල Post එකක් සකස් කරමින්...* (Generating detailed reply)");
+                
+                // 6. 🔗 Final Content Generation
+                const replyText = await generateReplyContent(text);
+                
+                // 7. ✅ Final Edit - සම්පූර්ණ පිළිතුර Message එකට යැවීම
+                await editTelegramMessage(chatId, validationMessageId, replyText);
+                
+            } else {
+                // Not a Trading Question - Guardrail Message 
+                const guardrailMessage = `⚠️ *Sorry! Mama program karala thiyenne **Trading, Finance, nathnam Crypto** related questions walata witharak answer karanna.* \n\n*Oyage Chat ID eka:* \`${chatId}\`\n\nPlease ask karanna: 'What is RSI?' wage ekak. *Anith ewa mata denuma naha.* 😔`;
+                await editTelegramMessage(chatId, validationMessageId, guardrailMessage);
+            }
+            
+        }
+        
+        return new Response('OK', { status: 200 });
+        
+    } catch (e) {
+        console.error("Error processing webhook:", e.stack);
+        return new Response('Error', { status: 500 });
+    }
 }
 
+
+// =================================================================
+// --- 7. WORKER EXPORT (FINAL UNIFIED HANDLERS) ---
+// =================================================================
+
 export default {
+    /**
+     * Handles scheduled events (Cron trigger)
+     */
     async scheduled(event, env, ctx) {
-        ctx.waitUntil(handleScheduledTasks(env));
+        ctx.waitUntil(
+            (async () => {
+                try {
+                    // 1. FUNDAMENTAL NEWS (AI High Impact Filter)
+                    await fetchForexNews(env);
+                    
+                    // 2. DAILY TRADING EDUCATIONAL POST
+                    const postContent = await generateScheduledContent(env); 
+                    if (postContent) {
+                        const success = await sendTelegramMessage(postContent); 
+                        if (success) {
+                            await writeKV(env, `trading_post_posted:${moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD')}`, "POSTED");
+                        } else {
+                            await writeKV(env, `trading_post_posted:${moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD')}`, "FAILED");
+                            await sendTelegramReplyToOwner(`❌ Scheduled Daily Trading Post එක යැවීම අසාර්ථක විය.`);
+                        }
+                    }
+                } catch (error) {
+                    console.error("[CRITICAL CRON FAILURE]: ", error.stack);
+                }
+            })()
+        );
     },
 
+    /**
+     * Handles Fetch requests (Webhook, Status, Trigger)
+     */
     async fetch(request, env, ctx) {
-        try {
-            const url = new URL(request.url);
-            
-            // Manual triggers for both bots
-            if (url.pathname === '/trigger-forex') {
-                await fetchForexNews(env);
-                return new Response('✅ Manual Forex News Triggered Successfully (High Impact Filter Active).', { status: 200 });
+        const url = new URL(request.url);
+        
+        // Manual Trigger for BOTH tasks
+        if (url.pathname === '/trigger-all') {
+            await fetchForexNews(env);
+            const postContent = await generateScheduledContent(env); 
+            if (postContent) {
+                await sendTelegramMessage(postContent);
             }
-            
-            // MANUAL TRIGGER FOR TRADING POST (Respects Daily Limit)
-            if (url.pathname === '/trigger-trading') {
-                const today = moment().tz(CONFIG.COLOMBO_TIMEZONE).format('YYYY-MM-DD');
-                const postKey = `daily_post_status:${today}`;
-
-                if (await readTradingKV(env, postKey) === 'POSTED') {
-                    return new Response('❌ Manual Trading Post Failed: Post already sent today (KV Status: POSTED).', { status: 500 });
-                }
-
-                const postContent = await generateScheduledContent(env);
-                if (postContent) {
-                    const success = await sendTelegramMessage(postContent); 
-                    if (success) { 
-                        await writeTradingKV(env, postKey, 'POSTED', { expirationTtl: 86400 }); 
-                        return new Response('✅ Manual Trading Post Triggered Successfully (Marked as Posted).', { status: 200 }); 
-                    }
-                    return new Response('❌ Manual Trading Post Failed to Send to Telegram. (Check logs)', { status: 500 });
-                }
-                return new Response('❌ Manual Trading Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
-            }
-            
-            // Status check
-            if (url.pathname === '/status') {
-                const lastForex = await readForexKV(env, FOREX_STATUS_KEYS.LAST_HEADLINE);
-                const lastTrading = await readTradingKV(env, TRADING_STATUS_KEYS.LAST_TRADING_TOPIC);
-                
-                const statusMessage = 
-                    `Bot Workers are active.\n` + 
-                    `Forex Filter Status: **High Impact Only**\n` +
-                    `Last Trading Topic: ${lastTrading || 'N/A'}\n` +
-                    `Last Posted Forex Headline (High Impact): ${lastForex || 'N/A'}`;
-                
-                return new Response(statusMessage, { status: 200 });
-            }
-
-
-            // Webhook Handling (for Telegram commands/updates)
-            if (request.method === 'POST') {
-                const update = await request.json();
-                
-                if (update && update.callback_query) {
-                    return handleCallbackQuery(update.callback_query, env);
-                }
-                
-                await handleTelegramUpdate(update, env); 
-                return new Response('OK', { status: 200 });
-            }
-
-            return new Response('Combined Trading and Forex Bot is ready. Use /trigger-forex or /trigger-trading to test.', { status: 200 });
-            
-        } catch (e) {
-            console.error('[CRITICAL FETCH FAILURE]:', e.stack);
-            return new Response(`Worker threw an unhandled exception: ${e.message}. Check Cloudflare Worker Logs.`, { status: 500 });
+            return new Response("✅ All scheduled tasks (News and Trading Post) manually triggered. Check your Telegram channel and Worker Logs.", { status: 200 });
         }
+        
+        // Manual News Trigger
+        if (url.pathname === '/trigger-news') {
+            await fetchForexNews(env);
+            return new Response("✅ Fundamental News task manually triggered. AI High Impact Filter is Active. Check logs.", { status: 200 });
+        }
+
+        // Manual Daily Post Trigger for Testing
+        if (url.pathname === '/trigger-manual') {
+            try {
+                 const postContent = await generateScheduledContent(env);
+                 if (postContent) {
+                    const success = await sendTelegramMessage(postContent); 
+                    if (success) {
+                        return new Response('✅ Manual Daily Post Triggered Successfully.', { status: 200 });
+                    }
+                    return new Response('❌ Manual Daily Post Failed to Send to Telegram. (Check logs)', { status: 500 });
+                 }
+                 return new Response('❌ Manual Daily Post Failed: Content Generation Failed. (Check logs)', { status: 500 });
+            } catch (e) {
+                 return new Response(`Error in Manual Trigger: ${e.message}`, { status: 500 });
+            }
+        }
+
+
+        if (request.method === 'POST') {
+            return handleWebhook(request, env);
+        }
+        
+        return new Response('Unified Trading Bot Worker running. Use the scheduled trigger or /trigger-all.', { status: 200 });
     }
 };
