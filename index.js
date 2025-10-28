@@ -1,18 +1,18 @@
-// --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ) ---
+// --- 0. CONFIGURATION (Keys සහ IDs සෘජුවම කේතයේ - Insecure) ---
 // ⚠️ ඔබගේ සැබෑ අගයන් සමඟ යාවත්කාලීන කරන්න ⚠️
 
 const CONFIG = {
     // 🛑 ඔබේ Bot Token එක
-    TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q", 
+    TELEGRAM_BOT_TOKEN: "5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q",
     
     // 🛑 ඔබේ Channel/Group Chat ID එක (Scheduled Post සඳහා)
-    TELEGRAM_CHAT_ID: "1901997764", 
+    TELEGRAM_CHAT_ID: "1901997764",
     
     // 🛑 ඔබේ පුද්ගලික Chat ID එක (Rate Limit අදාළ නොවන Owner ID)
-    OWNER_CHAT_ID: "6762786795", 
+    OWNER_CHAT_ID: "6762786795",
     
     // 🛑 ඔබේ අලුත්ම Gemini API Key එක
-    GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA", 
+    GEMINI_API_KEY: "AIzaSyDXf3cIysV1nsyX4vuNrBrhi2WCxV44pwA",
     
     // Telegram API Endpoint Base URL එක
     TELEGRAM_API_BASE: `https://api.telegram.org/bot5100305269:AAEHxCE1z9jCFZl4b0-yoRfVfojKBRKSL0Q`,
@@ -24,7 +24,7 @@ const CONFIG = {
 // --- 1. CORE AI FUNCTIONS ---
 
 // A. Gemini API call for Daily Scheduled Posts
-async function generateScheduledContent(coveredTopics) { 
+async function generateScheduledContent(coveredTopics) {
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
     const excludedTopicsString = coveredTopics.join(', ');
@@ -50,9 +50,9 @@ async function generateScheduledContent(coveredTopics) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ role: "user", parts: [{ text: userQuery }] }],
-                tools: [{ "google_search": {} }], 
+                tools: [{ "google_search": {} }],
                 systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { temperature: 0.8 } 
+                generationConfig: { temperature: 0.8 }
             }),
         });
 
@@ -88,9 +88,9 @@ async function generateReplyContent(userQuestion) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ role: "user", parts: [{ text: userQuestion }] }],
-                tools: [{ "google_search": {} }], 
+                tools: [{ "google_search": {} }],
                 systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { temperature: 0.7 } 
+                generationConfig: { temperature: 0.7 }
             }),
         });
 
@@ -102,12 +102,13 @@ async function generateReplyContent(userQuestion) {
     }
 }
 
-// C. Gemini API call for Trading Topic Validation
+// C. Gemini API call for Trading Topic Validation (Bug Fix Applied)
 async function validateTopic(userQuestion) {
     const GEMINI_API_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`;
     
+    // 🛑 Bug Fix: සිංහල/සිංග්ලිෂ් ප්‍රශ්න හඳුනා ගැනීමට උපදෙස් ඇතුළත් කරන ලදි
     const systemPrompt = `
-        You are an AI classifier. Your task is to determine if the user's query is strictly related to **Trading, Finance, Investing, Cryptocurrency, Forex, or the Stock Market**.
+        You are an AI classifier. Your task is to determine if the user's query, **WHICH MAY BE IN SINHALA OR SINGLISH**, is strictly related to **Trading, Finance, Investing, Cryptocurrency, Forex, or the Stock Market**.
         
         If the query is directly related to any of these financial topics, respond ONLY with the word "YES".
         If the query is about any other subject (general knowledge, politics, sports, entertainment, personal advice, etc.), respond ONLY with the word "NO".
@@ -120,7 +121,7 @@ async function validateTopic(userQuestion) {
             body: JSON.stringify({
                 contents: [{ role: "user", parts: [{ text: userQuestion }] }],
                 systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { temperature: 0.1 } 
+                generationConfig: { temperature: 0.0 } // නිශ්චිත පිළිතුරක් සඳහා 0.0 දක්වා අඩු කරන ලදි
             }),
         });
 
@@ -130,7 +131,7 @@ async function validateTopic(userQuestion) {
         return result === 'YES';
         
     } catch (e) {
-        return true; 
+        return true; // Error එකක් ආවොත්, ප්‍රශ්නය Trading එකක් ලෙස සලකන්න
     }
 }
 
@@ -144,9 +145,9 @@ async function sendTelegramMessage(caption) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                chat_id: CONFIG.TELEGRAM_CHAT_ID, 
+                chat_id: CONFIG.TELEGRAM_CHAT_ID,
                 text: caption,
-                parse_mode: 'Markdown' 
+                parse_mode: 'Markdown'
             }),
         });
         
@@ -164,15 +165,15 @@ async function sendTelegramReply(chatId, text, messageId) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                chat_id: chatId, 
+                chat_id: chatId,
                 text: text,
                 parse_mode: 'Markdown',
-                reply_to_message_id: messageId 
+                reply_to_message_id: messageId
             }),
         });
         
         const data = await response.json();
-        return data.ok ? data.result.message_id : null; 
+        return data.ok ? data.result.message_id : null;
     } catch (e) {
         return null;
     }
@@ -186,8 +187,8 @@ async function editTelegramMessage(chatId, messageId, text) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                chat_id: chatId, 
-                message_id: messageId, 
+                chat_id: chatId,
+                message_id: messageId,
                 text: text,
                 parse_mode: 'Markdown'
             }),
@@ -206,8 +207,8 @@ async function editTelegramMessageWithKeyboard(chatId, messageId, text, keyboard
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                chat_id: chatId, 
-                message_id: messageId, 
+                chat_id: chatId,
+                message_id: messageId,
                 text: text,
                 parse_mode: 'Markdown',
                 reply_markup: {
@@ -226,13 +227,13 @@ async function editTelegramMessageWithKeyboard(chatId, messageId, text, keyboard
 function extractTopicFromPost(postText) {
     if (!postText) return 'Unknown Topic';
     const titleLine = postText.split('\n')[0].trim();
-    return titleLine.substring(0, 50).replace(/[*_]/g, '').trim(); 
+    return titleLine.substring(0, 50).replace(/[*_]/g, '').trim();
 }
 
 // H. Owner ගේ Contact Link එක ලබා දේ
 function getOwnerContactLink() {
     // Owner ගේ නිවැරදි Telegram Username එක: Mrchamo_Lk
-    const ownerUsername = 'Mrchamo_Lk'; 
+    const ownerUsername = 'Mrchamo_Lk';
     return `https://t.me/${ownerUsername}`;
 }
 
@@ -260,7 +261,7 @@ async function checkAndIncrementUsage(env, chatId) {
     // මධ්‍යම රාත්‍රියේදී Reset වීමට expirationTtl (තත්පර වලින්) සකසන්න.
     const now = new Date();
     const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0); // හෙට දවසේ ආරම්භය
-    const expirationTtl = Math.max(1, Math.ceil((endOfDay.getTime() - now.getTime()) / 1000)); 
+    const expirationTtl = Math.max(1, Math.ceil((endOfDay.getTime() - now.getTime()) / 1000));
     
     await env.POST_STATUS_KV.put(KV_KEY, currentUsage.toString(), { expirationTtl: expirationTtl });
 
@@ -273,14 +274,14 @@ async function checkAndIncrementUsage(env, chatId) {
 async function runDailyPostWorkflow(env) {
     if (!env.POST_STATUS_KV) return { success: false, message: 'KV Binding is missing.' };
 
-    const todayKey = new Date().toISOString().slice(0, 10); 
-    const DAILY_POST_KV_KEY = `trading_post_posted:${todayKey}`; 
-    const TOPICS_COVERED_KV_KEY = `TRADING_TOPICS_COVERED`; 
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const DAILY_POST_KV_KEY = `trading_post_posted:${todayKey}`;
+    const TOPICS_COVERED_KV_KEY = `TRADING_TOPICS_COVERED`;
 
     const status = await env.POST_STATUS_KV.get(DAILY_POST_KV_KEY);
     if (status === 'POSTED') return { success: true, message: 'Trading Post already sent.' };
     
-    const coveredTopicsJson = await env.POST_STATUS_KV.get(TOPICS_COVERED_KV_KEY) || '["Support and Resistance", "Candlesticks", "Money Management"]'; 
+    const coveredTopicsJson = await env.POST_STATUS_KV.get(TOPICS_COVERED_KV_KEY) || '["Support and Resistance", "Candlesticks", "Money Management"]';
     let coveredTopics;
     try {
         coveredTopics = JSON.parse(coveredTopicsJson);
@@ -288,19 +289,19 @@ async function runDailyPostWorkflow(env) {
         coveredTopics = ["Support and Resistance", "Candlesticks", "Money Management"];
     }
 
-    const postText = await generateScheduledContent(coveredTopics); 
-    if (!postText) return { success: false, message: 'Failed to generate content via Gemini.' }; 
+    const postText = await generateScheduledContent(coveredTopics);
+    if (!postText) return { success: false, message: 'Failed to generate content via Gemini.' };
     
     const postSuccess = await sendTelegramMessage(postText);
 
     if (postSuccess) {
-        await env.POST_STATUS_KV.put(DAILY_POST_KV_KEY, 'POSTED', { expirationTtl: 86400 }); 
+        await env.POST_STATUS_KV.put(DAILY_POST_KV_KEY, 'POSTED', { expirationTtl: 86400 });
         
         const newTopic = extractTopicFromPost(postText);
         if (!coveredTopics.includes(newTopic)) {
             coveredTopics.push(newTopic);
         }
-        await env.POST_STATUS_KV.put(TOPICS_COVERED_KV_KEY, JSON.stringify(coveredTopics)); 
+        await env.POST_STATUS_KV.put(TOPICS_COVERED_KV_KEY, JSON.stringify(coveredTopics));
         
         return { success: true, message: 'Daily trading education post completed successfully.' };
     } else {
@@ -355,7 +356,7 @@ async function handleWebhook(request, env) {
                 
                 // 1. 🚦 Trading Validation - ආරම්භක පරීක්ෂාව (Singlish)
                 const validationMessageId = await sendTelegramReply(chatId, "⏳ *ප්‍රශ්නය පරීක්ෂා කරමින්...* (Topic Validating)", messageId);
-                const isTradingTopic = await validateTopic(text); 
+                const isTradingTopic = await validateTopic(text);
                 
                 if (isTradingTopic) {
                     
@@ -414,7 +415,7 @@ export default {
         // 1. Manual Trigger for Daily Post
         if (url.pathname === '/trigger-manual') {
             const result = await runDailyPostWorkflow(env);
-            return new Response(JSON.stringify(result, null, 2), { headers: { 'Content-Type': 'application/json' } }); 
+            return new Response(JSON.stringify(result, null, 2), { headers: { 'Content-Type': 'application/json' } });
         }
 
         // 2. Telegram Webhook Handler (POST Request)
